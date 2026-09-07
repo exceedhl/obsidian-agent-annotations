@@ -1,11 +1,8 @@
-# PRD：Obsidian Agent Annotations（Markdown 内容评论与 Agent 改稿）
+# PRD：Obsidian Agent Annotations
 
-> 上游需求：forge `40_Projects/obsidian-agent-annotations.md`（决策本体）、
-> `20_Zettels/research/knowledge/markdown-reader-agent-comment.md`（论证）。
-> 本文档是这两份的工程展开；与上游冲突时以 forge 为准，并把差异回写 forge。
+在 Obsidian 里对着 Markdown 划选区写批注，写入 `current.json`，由 Agent Skill 直接改正文。人不验收；失败条目留在队列里可再跑。
 
 - 状态：v0.1（已实现 MVP）
-- 代码仓：`~/code/obsidian-agent-annotations`
 
 ---
 
@@ -112,7 +109,7 @@ Obsidian ItemView，标题 **Agent Annotations**。这是本轮待处理清单�
 
 ### FR-6 Agent Skill 协议（交付物之一）
 
-仓库内提供可安装的 SKILL.md，约定（与 forge 一致，逐字不得弱化）：
+仓库内提供可安装的 SKILL.md，约定：
 
 1. 读 `.obsidian/agent-annotations/current.json`；不存在或列表空 → 报告没有待处理评论。
 2. 记下本轮**全部** id，必须逐条回应，不许只处理一部分就当完成。
@@ -179,7 +176,7 @@ Obsidian ItemView，标题 **Agent Annotations**。这是本轮待处理清单�
 - 性能：单文件 100+ 卡片时编辑器滚动不卡顿（decoration 依赖 CM6 原生 viewport 裁剪）；队列面板千条以内即时渲染。
 - TODO: 兼容性底线定为 Obsidian 哪个最低版本（影响 `minAppVersion` 与 CM6 API 可用性）。
 
-## 10. Open Questions（继承 forge，实现前需收敛）
+## 10. Open Questions
 
 1. Review mode 关着时，新建批注是否强制先打开 Review mode？（倾向：不强制，保存即开。）
 2. 是否允许一条指令跨多个段落/标题？（倾向：允许，schema 不约束。）
