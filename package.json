@@ -1,0 +1,23 @@
+{
+	"name": "obsidian-agent-annotations",
+	"version": "0.1.0",
+	"description": "Write Agent instructions on Markdown selections and hand them off via current.json",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "tsx --test src/*.test.ts"
+	},
+	"keywords": [
+		"obsidian-plugin"
+	],
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^22.15.17",
+		"esbuild": "0.25.5",
+		"obsidian": "latest",
+		"tsx": "^4.20.5",
+		"typescript": "^5.8.3"
+	}
+}

@@ -4,7 +4,7 @@
 > `20_Zettels/research/knowledge/markdown-reader-agent-comment.md`（论证）。
 > 本文档是这两份的工程展开；与上游冲突时以 forge 为准，并把差异回写 forge。
 
-- 状态：v0.1（实现前）
+- 状态：v0.1（已实现 MVP）
 - 代码仓：`~/code/obsidian-agent-annotations`
 
 ---
