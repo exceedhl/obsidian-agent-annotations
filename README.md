@@ -1,11 +1,16 @@
-# obsidian-agent-annotations
+# Agent Annotations
 
-Obsidian 插件：对着 Markdown 全文划选区写批注（Annotation），
-存进 `<vault>/.obsidian/agent-annotations/current.json`；随后到任意 Agent
-（pi / Claude Code / Codex）里调 Skill 读这份文件，直接改正文。
-人不验收，失败条目留在 JSON 里可再跑。
+Select Markdown text, write Agent instructions, and hand the queue to any Agent via `<vault>/.obsidian/agent-annotations/current.json`. The Agent edits the notes directly; leftover rows stay in the file so you can run again.
+
+对着 Markdown 全文划选区写批注，存进 `current.json`；随后到任意 Agent（Cursor / Claude Code / Codex）里调 Skill 读这份文件，直接改正文。人不验收，失败条目留在 JSON 里可再跑。
 
 产品需求见 `docs/PRD.md`。
+
+## Install
+
+In Obsidian: **Settings → Community plugins → Browse**, search **Agent Annotations**, install and enable.
+
+Until the listing is live, install from GitHub: download `main.js`, `manifest.json`, and `styles.css` from the latest [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) into `<vault>/.obsidian/plugins/agent-annotations/`, then enable the plugin.
 
 ## 安装（开发）
 

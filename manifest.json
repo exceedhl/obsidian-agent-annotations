@@ -1,9 +1,10 @@
 {
 	"id": "agent-annotations",
 	"name": "Agent Annotations",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"minAppVersion": "1.5.0",
 	"description": "Select Markdown text, write Agent instructions, and hand the queue to any Agent via current.json.",
 	"author": "lucas.huang",
+	"authorUrl": "https://github.com/exceedhl",
 	"isDesktopOnly": false
 }
