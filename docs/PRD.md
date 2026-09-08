@@ -1,125 +1,127 @@
-# PRD：Obsidian Agent Annotations
+# PRD: Agent Annotations
 
-在 Obsidian 里对着 Markdown 划选区写批注，写入 `current.json`，由 Agent Skill 直接改正文。人不验收；失败条目留在队列里可再跑。
+**English** | [中文](PRD.zh.md)
 
-- 状态：v0.1（已实现 MVP）
+Select Markdown in Obsidian, write annotations into `current.json`, and let an Agent Skill edit the notes directly. The human does not accept or reject patches. Failed rows stay in the queue so you can run again.
+
+- Status: v1.0 (MVP shipped)
 
 ---
 
-## 1. 背景与问题
+## 1. Background
 
-人在 Obsidian 里通读 Markdown 全文时，会产生零散的改写意见（「这段换个说法」「这里举个例子」）。现状的断点：
+While reading Markdown in Obsidian, you get scattered rewrite notes (“say this differently”, “add an example”). Today that breaks in three places:
 
-1. 意见没有地方放：写进正文会污染文档；记在脑子里会丢。
-2. 交接靠 Copy：把意见一条条复制给 Agent，多文件时不可行。
-3. 现成工具方向不同：Tandem / Skribe 是「Agent 写 suggestion、人再 Accept」的协作审稿，作者是另一个参与者；这里要的是「Agent 直接改正文，人不验收」。
+1. Nowhere to put the note: writing it into the body pollutes the document; keeping it in your head loses it.
+2. Handoff is copy-paste: sending comments one by one does not scale across files.
+3. Existing tools go the other way: Tandem / Skribe have the Agent write a suggestion and a human Accept it. Here the Agent edits the body; the human does not review.
 
-## 2. 目标与非目标
+## 2. Goals and non-goals
 
-### 目标
+### Goals
 
-| # | 目标 | 衡量 |
+| # | Goal | Measure |
 |---|---|---|
-| G1 | 边读边写改稿指令，不打断阅读流 | 选中 → `+ Agent instruction` → `⌘↵` 保存，三步以内 |
-| G2 | 多文件一轮批注，一次交给 Agent | 任意 Agent 调一次 Skill 处理全部待处理条目 |
-| G3 | 交接零复制 | Agent 只读固定路径 `current.json`，不需要 prompt 文本 |
-| G4 | 结果可信收尾 | 全成功才清空；任何失败/崩溃都残留可续跑的批注 |
+| G1 | Write edit instructions while reading, without breaking flow | Select → `+ Agent instruction` → `⌘↵` to save, in three steps |
+| G2 | Annotate many files in one round, hand off once | Any Agent runs the Skill once and processes every pending row |
+| G3 | Zero-copy handoff | The Agent only reads the fixed path `current.json`; no prompt text |
+| G4 | Trustworthy close-out | Clear only when everything succeeds; any failure or crash leaves rerunnable annotations |
 
-### 非目标（本期不做）
+### Non-goals (this release)
 
-- 协作评论的一切：作者、状态、thread、时间线、resolve。
-- 人验收环节（Accept/Reject suggestion）。
-- Agent 回写讨论、往 JSON 写 status / 回复 / completed 字段。
-- 专用 CLI、session daemon、跑批锁（用 Skill 纪律代替，见 §8）。
-- 把 Agent 嵌进 Obsidian。
+- Collaboration comments: author, status, thread, timeline, resolve.
+- Human review (Accept / Reject suggestion).
+- The Agent writing discussion, status, replies, or completed fields into the JSON.
+- A dedicated CLI, session daemon, or batch lock (Skill discipline instead; see §8).
+- Embedding an Agent inside Obsidian.
 
-## 3. 用户与场景
+## 3. User and scenario
 
-单一用户：vault 作者本人，同时也是 Agent 的操作者。
+One user: the vault author, who also runs the Agent.
 
-核心场景：人在 Obsidian 读完一组文档并打上若干条改稿指令 → 切到 Agent（pi / Claude Code / Codex）调 Skill → Agent 逐条改正文并汇报 → 卡片自动消失（全部成功）或留下没做成的（部分成功）。
+Core path: the person reads a set of notes in Obsidian and writes several edit instructions → switches to an Agent (Cursor / Claude Code / Codex) and invokes the Skill → the Agent edits each note and reports → cards disappear (all succeeded) or leftovers remain (partial success).
 
-## 4. 核心流程
+## 4. Core flow
 
 ```text
-人在 Obsidian 读 Markdown 全文
-  → 划线写下怎么改（current.json，不进正文）
-  → 在 Agent 里调用 Skill（不必复制 prompt）
-  → Skill 读 current.json，必须对每一条都回应，直接改 .md
-  → 全部成功：清空 current.json，卡片消失
-  → 失败 / 崩溃 / 有一条没做成：失败的批注留在文件里，可再跑 Skill
+Person reads Markdown in Obsidian
+  → selects text and writes how to change it (current.json, not the note body)
+  → invokes the Skill in an Agent (no prompt paste)
+  → Skill reads current.json, must answer every row, edits the .md files
+  → all succeeded: current.json is emptied, cards disappear
+  → failure / crash / one row unfinished: failed annotations stay, Skill can run again
 ```
 
-## 5. 功能需求
+## 5. Requirements
 
-### FR-1 编辑器指令卡片
+### FR-1 Editor instruction cards
 
-- 选中正文 → 出现 `+ Agent instruction` 入口（选区浮层或右键菜单，二选一，实现选开发成本低者）→ 选区末尾下方插入输入卡。
-- `⌘↵` 保存、`Esc` 取消。保存后选区保持淡高亮，卡片持久展开。
-- 卡片标题固定为 **Agent instruction** + 序号；内容只显示指令文本 + `Edit` / `×`。
-- 点卡片正文进入编辑；`×` 立即删除，不二次确认，给短 Undo toast（3–5s）。
-- 同一段落多条指令：卡片在选区下按创建顺序叠放。
-- 指令文本**不写入 `.md` 正文**；平时编辑（Review mode 关闭时）无任何视觉残留。
+- Select body text → `+ Agent instruction` (selection toolbar or context menu) → insert an input card below the end of the selection.
+- `⌘↵` saves, `Esc` cancels. After save, the span stays lightly highlighted and the card stays open.
+- Card title is **Agent instruction** plus an index; body shows only the instruction plus `Edit` / `×`.
+- Click the card body to edit; `×` deletes immediately, no confirm, with a short Undo toast (3–5s).
+- Several instructions on one paragraph: cards stack under the selection in creation order.
+- Instruction text is **not** written into the `.md` body. With Review mode off, editing has no leftover chrome.
 
-CM6 实现要点：选区末尾 `Decoration.widget`（`block: true`, `side: 1`）插卡片；`from→to` 用 `mark` 做高亮；正文本地编辑时 `decorationSet.map(update.changes)` 跟随位移。
+CM6 notes: a `Decoration.widget` (`block: true`, `side: 1`) at the end of the selection; a `mark` on `from→to` for highlight; map decorations through `decorationSet.map(update.changes)` when the body edits.
 
 ### FR-2 Review Mode
 
-| 状态 | 行为 |
+| State | Behavior |
 |---|---|
-| 开 | 显示全部展开卡片、选区高亮、新建入口 |
-| 关 | 卡片与高亮全部隐藏，`current.json` 队列不动 |
-| 再打开 | 从 `current.json` 重新渲染 |
-| End session | 人主动清空 `current.json`（放弃队列） |
+| On | Show every open card, highlights, and the new-annotation entry |
+| Off | Hide cards and highlights; `current.json` is unchanged |
+| On again | Re-render from `current.json` |
+| End session | Person clears `current.json` (abandons the queue) |
 
-Review mode 默认关闭；是否「新建批注强制开 Review mode」见 §10 Open Questions。
+Review mode is off by default. Whether creating an annotation forces it on is in §10.
 
-### FR-3 Review Queue 面板
+### FR-3 Review Queue pane
 
-Obsidian ItemView，标题 **Agent Annotations**。这是本轮待处理清单，不是历史记录。
+Obsidian ItemView titled **Agent Annotations**. This is the pending list for this round, not history.
 
-| 操作 | 行为 |
+| Action | Behavior |
 |---|---|
-| 点文件名 | 打开该 `.md`，滚到第一条批注 |
-| 点批注 | 打开文件、定位选区、短闪高亮 |
-| Edit / Delete | 处理前改或删这一条 |
-| Clear file | 清掉该文件全部未处理批注 |
-| Clear all / End session | 清空 `current.json` |
+| Click a file name | Open that `.md` and scroll to the first annotation |
+| Click an annotation | Open the file, locate the span, flash highlight |
+| Edit / Delete | Change or drop a row before the Agent runs |
+| Clear file | Drop every pending annotation on that file |
+| Clear all / End session | Clear `current.json` |
 
-有批注的文件顶部显示计数，如 `Agent annotations · 3`；无批注文件无额外 UI。
+Files with annotations show a count at the top, such as `Agent annotations · 3`. Files with none get no extra UI.
 
-### FR-4 `current.json` 存储
+### FR-4 `current.json` storage
 
-唯一共享文件，路径固定：
+One shared file, fixed path:
 
 ```text
 <vault>/.obsidian/agent-annotations/current.json
 ```
 
-- 人写时插件写；Skill 读并写回。不拆 queue / 冻结稿两份文件。
-- JSON 扁平，每条自带 `file`。
-- 文件形状**永远是「待处理指令列表」**：禁止增加 status、回复、completed 字段。
-- 文件不存在 = 无待处理批注；空 `annotations` 数组等价。
+- The plugin writes when the person saves; the Skill reads and writes back. Do not split queue vs frozen copies.
+- Flat JSON; each row carries its own `file`.
+- The file shape is **always a pending-instruction list**. Do not add status, reply, or completed fields.
+- Missing file = no pending annotations; an empty `annotations` array is the same.
 
-### FR-5 文件监视与卡片生命周期
+### FR-5 File watch and card lifetime
 
-- 插件监视 `current.json`：Skill 写回（删条目或清空）后，对应卡片与 highlight 自动消失，无需人刷新。
-- `.md` 文件重命名/移动：尽力更新 `file` 字段；失败则条目保留，由 Skill 侧报「定位失败」。
-- 正文本地改动导致 `selectedText` 失配：插件不主动清理，留给 Skill 按「没做成」处理。
+- The plugin watches `current.json`. After the Skill writes back (deletes rows or clears the file), the matching cards and highlights disappear without a manual refresh.
+- On `.md` rename/move: update `file` when possible; on failure keep the row so the Skill can report a locate miss.
+- If a local edit makes `selectedText` miss: the plugin does not clean it up; the Skill treats it as unfinished.
 
-### FR-6 Agent Skill 协议（交付物之一）
+### FR-6 Agent Skill protocol (a deliverable)
 
-仓库内提供可安装的 SKILL.md，约定：
+Ship an installable SKILL.md that requires:
 
-1. 读 `.obsidian/agent-annotations/current.json`；不存在或列表空 → 报告没有待处理评论。
-2. 记下本轮**全部** id，必须逐条回应，不许只处理一部分就当完成。
-3. 按文件分组，用 `selectedText` / `headingPath` / `prefix` / `suffix` 定位，做最小修改。
-4. 重叠或同 heading 的指令合成一次连贯编辑，输出仍按 id 逐条交代。
-5. 不改 instruction 文本，不写回复进 JSON。
-6. 写回：删掉已成功 id；没做成的留下；启动后一条未做成即中止 → 文件原样不动；全部成功 → 清空或删文件。
-7. 终端输出：每个 id 都要出现（做成了什么 / 为什么没做成）。
+1. Read `.obsidian/agent-annotations/current.json`. Missing or empty → report nothing pending.
+2. Snapshot **every** id this round. Answer every row. Finishing a subset is a protocol failure.
+3. Group by file. Locate with `selectedText` / `headingPath` / `prefix` / `suffix`. Make the smallest edit.
+4. Overlapping or same-heading instructions become one coherent edit; the report is still one line per id.
+5. Do not change `instruction` text. Do not write replies into the JSON.
+6. Write-back: drop successful ids; keep failures; if nothing finished after start, leave the file untouched; if everything succeeded, empty or delete the file.
+7. Terminal / chat output: every id appears (what changed, or why it did not).
 
-## 6. 数据规格
+## 6. Data spec
 
 ```json
 {
@@ -128,76 +130,76 @@ Obsidian ItemView，标题 **Agent Annotations**。这是本轮待处理清单�
     {
       "id": "a_001",
       "file": "docs/auth.md",
-      "instruction": "解释 refresh token。",
-      "selectedText": "Token 会在 24 小时后过期。",
-      "headingPath": ["认证", "令牌生命周期"],
-      "prefix": "…上文 40 字…",
-      "suffix": "…下文 40 字…"
+      "instruction": "Explain refresh tokens.",
+      "selectedText": "The token expires after 24 hours.",
+      "headingPath": ["Auth", "Token lifetime"],
+      "prefix": "…about 40 characters before…",
+      "suffix": "…about 40 characters after…"
     }
   ]
 }
 ```
 
-| 字段 | 必填 | 说明 |
+| Field | Required | Notes |
 |---|---|---|
-| `version` | 是 | 固定 `1`，schema 演进时递增 |
-| `id` | 是 | 插件生成，如 `a_` + 短随机；一轮内唯一 |
-| `file` | 是 | vault 相对路径（POSIX 分隔符） |
-| `instruction` | 是 | 人的指令原文；Agent 不得修改 |
-| `selectedText` | 是 | 选区原文，首要定位锚 |
-| `headingPath` | 建议 | 所在标题链，从 H1 到最近标题 |
-| `prefix` / `suffix` | 建议 | 选区前后各约 40 字，辅助消歧 |
+| `version` | yes | Always `1`; increment when the schema changes |
+| `id` | yes | Plugin-generated, e.g. `a_` + short random; unique in the round |
+| `file` | yes | Path relative to the vault (POSIX separators) |
+| `instruction` | yes | The person's original instruction; the Agent must not edit it |
+| `selectedText` | yes | Selected source text; primary locate anchor |
+| `headingPath` | recommended | Heading chain from H1 to the nearest heading |
+| `prefix` / `suffix` | recommended | About 40 characters on each side, for disambiguation |
 
-写回纪律（三种结局，实现与测试都要覆盖）：
+Write-back outcomes (all three must be implemented and tested):
 
-1. 全成功 → `annotations` 为空数组，或删除整个文件。
-2. 部分成功 → 只保留失败 id，原文不动。
-3. 崩溃 / 无写回 → 文件与跑前**字节级一致**；重跑时旧 `selectedText` 可能对不上，对不上按「没做成」走结局 2。
+1. All succeeded → `annotations` is `[]`, or the file is deleted.
+2. Partial success → keep only failed ids, byte-identical to the snapshot rows.
+3. Crash / no write-back → the file is **byte-identical** to before the run. On rerun, a drifted `selectedText` is treated as unfinished (outcome 2).
 
-## 7. 边界与异常
+## 7. Edges and errors
 
-| 场景 | 行为 |
+| Case | Behavior |
 |---|---|
-| 同一 `selectedText` 在文件中出现多次 | 用 `headingPath` + `prefix/suffix` 消歧；仍歧义则 Skill 报「没做成」，条目留下 |
-| 跑 Skill 期间人又加了新评论 | MVP 用纪律约束（不加）；不实现锁，见 §8 |
-| 两台 Agent 同时读 | 同上，本期不防 |
-| `.md` 被外部删除 | 插件标该文件条目为不可定位；Skill 报「没做成」，条目留下 |
-| JSON 损坏（人手改坏） | 插件解析失败时显示队列面板错误态，不自动修复、不覆盖原文件 |
-| 指令跨段落/跨标题 | MVP 允许选中任意选区，不特殊处理；见 §10 |
+| Same `selectedText` appears more than once | Disambiguate with `headingPath` + `prefix`/`suffix`; if still tied, Skill reports unfinished and keeps the row |
+| Person adds comments while the Skill runs | MVP: discipline only (do not add); no lock, see §8 |
+| Two Agents read at once | Same; out of scope |
+| `.md` deleted externally | Plugin marks the row unlocatable; Skill reports unfinished and keeps it |
+| JSON corrupted (hand-edited) | Plugin shows an error in the pane; do not auto-repair or overwrite |
+| Instruction spans paragraphs / headings | MVP allows any selection; see §10 |
 
-## 8. 并发与锁（明确降级）
+## 8. Concurrency and locks (explicit downgrade)
 
-「正在跑、禁止再划线」的文件锁、防双 Agent 读取，依赖专用 CLI 才做。**本期只用 Skill 纪律**，风险接受：偶发冲突靠 JSON 结局 3 的字节级不变性兜底，最坏是重跑一轮。
+File locks (“Skill is running, no more annotations”) and two-Agent protection need a dedicated CLI. **This release uses Skill discipline only.** Occasional conflicts fall back to outcome 3 (byte-identical file). Worst case: run the Skill again.
 
-## 9. 非功能需求
+## 9. Non-functional
 
-- 离线纯本地：无任何网络请求；JSON 是唯一存储。
-- 隐私：`current.json` 不出 vault；Skill 侧 Agent 的网络行为由用户自选 Agent 决定，插件不介入。
-- 性能：单文件 100+ 卡片时编辑器滚动不卡顿（decoration 依赖 CM6 原生 viewport 裁剪）；队列面板千条以内即时渲染。
-- TODO: 兼容性底线定为 Obsidian 哪个最低版本（影响 `minAppVersion` 与 CM6 API 可用性）。
+- Offline, local only: no network; JSON is the only store.
+- Privacy: `current.json` stays in the vault. What the Agent does on the network is the user's Agent choice; the plugin does not participate.
+- Performance: 100+ cards in one file should scroll smoothly (CM6 viewport culling); the pane should render instantly up to about a thousand rows.
+- Compatibility floor is Obsidian 1.5.0 (`minAppVersion`), for CM6 APIs.
 
-## 10. Open Questions
+## 10. Open questions
 
-1. Review mode 关着时，新建批注是否强制先打开 Review mode？（倾向：不强制，保存即开。）
-2. 是否允许一条指令跨多个段落/标题？（倾向：允许，schema 不约束。）
-3. 与 Tandem / Document Comments 共存时的快捷键、视觉冲突怎么避让？（倾向：本插件卡片左侧边线 + 淡底，与主题 accent 走。）
+1. If Review mode is off, does creating an annotation force it on? (Lean: do not force; saving turns it on.)
+2. May one instruction span several paragraphs or headings? (Lean: yes; schema does not constrain it.)
+3. How to avoid shortcut and visual clashes with Tandem / Document Comments? (Lean: left rule + light wash on this plugin's cards, following the theme accent.)
 
-## 11. 验收标准
+## 11. Acceptance
 
-按 G1–G4 各出一条可执行验收：
+One executable check per G1–G4:
 
-1. **G1**：在任意 `.md` 选中一段文字，三步内保存一条指令；卡片刻即展开显示，正文文件字节不变。
-2. **G2**：在 3 个文件各打 ≥2 条，面板显示总数正确；调一次 Skill 后全部条目被处理并逐条汇报。
-3. **G3**：全程不向 Agent 粘贴任何 prompt 文本，仅调用 Skill。
-4. **G4a**：Skill 汇报全成功后，`current.json` 为空或不存在，所有卡片消失。
-   **G4b**：人为构造一条无法定位的指令，Skill 跑完后该条仍在 JSON 与编辑器中，成功条目已消失。
-   **G4c**：Skill 进程在写回前被 kill，`current.json` 与跑前 diff 为空。
+1. **G1**: In any `.md`, save an instruction in three steps; the card opens immediately; the note file bytes do not change.
+2. **G2**: Put ≥2 annotations in each of 3 files; the pane total is correct; one Skill run processes every row and reports each id.
+3. **G3**: Never paste prompt text into the Agent; only invoke the Skill.
+4. **G4a**: After the Skill reports all-success, `current.json` is empty or gone and every card disappears.
+   **G4b**: Plant one unlocatable instruction; after the Skill run that row is still in the JSON and the editor; successful rows are gone.
+   **G4c**: Kill the Skill process before write-back; `current.json` diffs empty against the pre-run file.
 
-## 12. 里程碑拆解
+## 12. Milestones
 
-| 里程碑 | 内容 | 退出标准 |
+| Milestone | Scope | Exit |
 |---|---|---|
-| M1 编辑器卡片 | FR-1 + FR-2 + FR-4 的写入侧 | 能划线、存 JSON、开关 Review mode |
-| M2 队列面板 | FR-3 + FR-5 的监视 | 面板操作齐全，JSON 外部变更后 UI 同步 |
-| M3 Skill 闭环 | FR-6 + §6 三种结局 | G2–G4 验收通过 |
-| M4 打磨 | Undo toast、计数徽标、异常态 UI、主题适配 | §9 性能项过检 |
+| M1 Editor cards | FR-1 + FR-2 + write side of FR-4 | Select, save JSON, toggle Review mode |
+| M2 Queue pane | FR-3 + watch side of FR-5 | Pane actions complete; UI tracks external JSON changes |
+| M3 Skill loop | FR-6 + the three §6 outcomes | G2–G4 pass |
+| M4 Polish | Undo toast, count badge, error UI, theme | §9 performance checks pass |

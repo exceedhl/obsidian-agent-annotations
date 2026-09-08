@@ -1,10 +1,10 @@
 # Agent Annotations
 
-Select Markdown text, write Agent instructions, and hand the queue to any Agent via `<vault>/.obsidian/agent-annotations/current.json`. The Agent edits the notes directly; leftover rows stay in the file so you can run again.
+**English** | [中文](README.zh.md)
 
-对着 Markdown 全文划选区写批注，存进 `current.json`；随后到任意 Agent（Cursor / Claude Code / Codex）里调 Skill 读这份文件，直接改正文。人不验收，失败条目留在 JSON 里可再跑。
+Select Markdown text, write Agent instructions, and hand the queue to any Agent via `<vault>/.obsidian/agent-annotations/current.json`. The Agent edits the notes directly. Failed rows stay in the file so you can run again.
 
-产品需求见 `docs/PRD.md`。
+Product requirements: [`docs/PRD.md`](docs/PRD.md) ([中文](docs/PRD.zh.md)).
 
 ## Install
 
@@ -12,9 +12,9 @@ In Obsidian: **Settings → Community plugins → Browse**, search **Agent Annot
 
 Until the listing is live, install from GitHub: download `main.js`, `manifest.json`, and `styles.css` from the latest [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) into `<vault>/.obsidian/plugins/agent-annotations/`, then enable the plugin.
 
-## 安装（开发）
+## Install (development)
 
-把本仓放到 vault 的插件目录，或做软链：
+Put this repo in the vault plugin folder, or symlink it:
 
 ```bash
 ln -s ~/code/obsidian-agent-annotations \
@@ -24,31 +24,31 @@ npm install
 npm run build
 ```
 
-在 Obsidian → Settings → Community plugins 关闭 Safe mode，启用 **Agent Annotations**。
-改代码时用 `npm run dev`，再装 [Hot Reload](https://github.com/pjeby/hot-reload) 可免重启。
+In Obsidian → Settings → Community plugins, turn off Restricted mode and enable **Agent Annotations**.
+While coding, run `npm run dev` and install [Hot Reload](https://github.com/pjeby/hot-reload) to skip restarts.
 
-## 用法
+## Usage
 
-1. 在 `.md` 里划一段文字，点 `+ Annotation`（或右键菜单 / 命令 `Add annotation`）。
-2. 写下怎么改，点 **Save** / **Cancel**，或用卡片快捷键（默认 `Mod+Enter` / `Escape`）。保存会打开 Review mode。
-3. 卡片插在该行下方、跟着正文滚动；点正文编辑，`×` 删除（有短 Undo）。
-4. 卡片快捷键在 **Settings → Agent Annotations** 里改。`Add annotation` 本身可在 Settings → Hotkeys 绑定。
-5. 命令 `Toggle Review mode` 可隐藏全部卡片与高亮，队列仍在 `current.json`。
-6. 右侧 **Annotations** 面板是本轮待处理清单：点行跳转，行上删除单条。面板菜单或命令可清空全部。
-7. 到 Agent 里调用 `obsidian-agent-annotations` Skill（不要粘贴 prompt）。
+1. Select text in a `.md` file, then click `+ Annotation` (or the context menu / command `Add annotation`).
+2. Write the change, then **Save** / **Cancel**, or use the card shortcuts (default `Mod+Enter` / `Escape`). Saving turns Review mode on.
+3. The card sits below that line and scrolls with the note. Click the card body to edit; `×` deletes it (short Undo).
+4. Change card shortcuts in **Settings → Agent Annotations**. Bind `Add annotation` itself in Settings → Hotkeys.
+5. `Toggle Review mode` hides every card and highlight. The queue stays in `current.json`.
+6. The **Annotations** pane on the right is this round's pending list: click a row to jump, delete one row from the list. The pane menu or a command can clear everything.
+7. In your Agent, invoke the `obsidian-agent-annotations` Skill. Do not paste a prompt.
 
 ## Skill
 
-把 `skill/obsidian-agent-annotations/` 拷进所用 Agent 的 skills 目录，例如：
+Copy `skill/obsidian-agent-annotations/` into the Agent's skills directory, for example:
 
-- Cursor：`~/.cursor/skills/obsidian-agent-annotations/`
-- Claude Code：`~/.claude/skills/obsidian-agent-annotations/`
+- Cursor: `~/.cursor/skills/obsidian-agent-annotations/`
+- Claude Code: `~/.claude/skills/obsidian-agent-annotations/`
 
-Skill 用 `$VAULT_PATH`，否则从 cwd 向上找到第一份 `.obsidian/agent-annotations/current.json`。在 vault 工作区里调用即可。行内 `file` 是相对 vault 根目录，不是相对仓库。
+The Skill uses `$VAULT_PATH`, otherwise it walks up from cwd to the first `.obsidian/agent-annotations/current.json`. Run it from a vault workspace. Each row's `file` is relative to the vault root, not the git repo.
 
-协议要点：必须逐条回应；成功才删 id；失败留原文；写回前崩溃则文件不动。禁止往 JSON 写 status / 回复。对话里先说这一轮结果，再按文件列出每条做成了什么或为什么留下。
+Protocol: answer every row; delete an id only after it succeeds; leave failures as-is; if the process crashes before write-back, leave the file untouched. Do not write status or replies into the JSON. In chat, lead with this round's outcome, then list per file what landed or why a row stayed.
 
-## 存储
+## Storage
 
 ```text
 <vault>/.obsidian/agent-annotations/current.json
@@ -61,26 +61,26 @@ Skill 用 `$VAULT_PATH`，否则从 cwd 向上找到第一份 `.obsidian/agent-a
     {
       "id": "a_001",
       "file": "docs/auth.md",
-      "instruction": "解释 refresh token。",
-      "selectedText": "Token 会在 24 小时后过期。",
-      "headingPath": ["认证", "令牌生命周期"],
-      "prefix": "…上文 40 字…",
-      "suffix": "…下文 40 字…"
+      "instruction": "Explain refresh tokens.",
+      "selectedText": "The token expires after 24 hours.",
+      "headingPath": ["Auth", "Token lifetime"],
+      "prefix": "…about 40 characters before…",
+      "suffix": "…about 40 characters after…"
     }
   ]
 }
 ```
 
-## 命令
+## Commands
 
-| 命令 | 作用 |
+| Command | Action |
 |---|---|
-| Add annotation | 把当前选区变成一条批注草稿 |
-| Toggle Review mode | 显示 / 隐藏卡片与高亮 |
-| Open annotations pane | 打开右侧批注列表 |
-| End session (clear all annotations) | 清空 `current.json` |
+| Add annotation | Turn the current selection into a draft annotation |
+| Toggle Review mode | Show / hide cards and highlights |
+| Open annotations pane | Open the right-hand annotation list |
+| End session (clear all annotations) | Clear `current.json` |
 
-## 开发
+## Development
 
 ```bash
 npm test
