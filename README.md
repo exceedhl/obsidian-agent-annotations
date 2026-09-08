@@ -2,7 +2,9 @@
 
 **English** | [中文](README.zh.md)
 
-Select Markdown text, write Agent instructions, and hand the queue to any Agent via `<vault>/.obsidian/agent-annotations/current.json`. The Agent edits the notes directly. Failed rows stay in the file so you can run again.
+Annotate Markdown as you read — the way you would mark a diff for an Agent to review — then hand the notes over.
+
+Select a passage, write the change, keep reading. Any Agent reads those annotations and edits the files.
 
 Product requirements: [`docs/PRD.md`](docs/PRD.md) ([中文](docs/PRD.zh.md)).
 
@@ -10,7 +12,7 @@ Product requirements: [`docs/PRD.md`](docs/PRD.md) ([中文](docs/PRD.zh.md)).
 
 In Obsidian: **Settings → Community plugins → Browse**, search **Agent Annotations**, install and enable.
 
-Until the listing is live, install from GitHub: download `main.js`, `manifest.json`, and `styles.css` from the latest [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) into `<vault>/.obsidian/plugins/agent-annotations/`, then enable the plugin.
+Or install from GitHub: download `main.js`, `manifest.json`, and `styles.css` from the latest [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) into `<vault>/.obsidian/plugins/agent-annotations/`, then enable the plugin.
 
 ## Install (development)
 

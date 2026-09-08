@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-agent-annotations",
 	"version": "1.0.0",
-	"description": "Write Agent instructions on Markdown selections and hand them off via current.json.",
+	"description": "Annotate Markdown as you read, then hand the notes to any Agent — like marking a diff for review. The Agent edits the files.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

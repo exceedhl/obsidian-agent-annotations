@@ -2,7 +2,9 @@
 
 [English](README.md) | **中文**
 
-对着 Markdown 全文划选区写批注，存进 `<vault>/.obsidian/agent-annotations/current.json`；随后到任意 Agent（Cursor / Claude Code / Codex）里调 Skill 读这份文件，直接改正文。人不验收，失败条目留在 JSON 里可再跑。
+像在 diff 上给 Agent 留 review 意见一样，直接在 Markdown 里批注，再交给 Agent 改。
+
+划一段、写下怎么改、继续读。任意 Agent 读这些批注并改正文。
 
 产品需求见 [`docs/PRD.zh.md`](docs/PRD.zh.md)（[English](docs/PRD.md)）。
 
@@ -10,7 +12,7 @@
 
 在 Obsidian：**Settings → Community plugins → Browse**，搜索 **Agent Annotations**，安装并启用。
 
-目录上线前，可从 GitHub 安装：到最新 [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) 下载 `main.js`、`manifest.json`、`styles.css`，放到 `<vault>/.obsidian/plugins/agent-annotations/`，再启用插件。
+或从 GitHub 安装：到最新 [Release](https://github.com/exceedhl/obsidian-agent-annotations/releases) 下载 `main.js`、`manifest.json`、`styles.css`，放到 `<vault>/.obsidian/plugins/agent-annotations/`，再启用插件。
 
 ## 安装（开发）
 
