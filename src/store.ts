@@ -1,5 +1,4 @@
-import { FileSystemAdapter, type App } from "obsidian";
-import type { FSWatcher } from "fs";
+import { FileSystemAdapter, Platform, type App } from "obsidian";
 import { STORE_DIR_NAME, STORE_FILE_NAME } from "./constants";
 import { generateId } from "./ids";
 import {
@@ -19,12 +18,17 @@ export interface StoreSnapshot {
 	exists: boolean;
 }
 
+interface DirWatcher {
+	close(): void;
+}
+
 export class AnnotationStore {
 	private readonly listeners = new Set<StoreListener>();
 	private file: AnnotationFile = emptyAnnotationFile();
 	private error: string | null = null;
 	private exists = false;
-	private watcher: FSWatcher | null = null;
+	private watcher: DirWatcher | null = null;
+	private watchGeneration = 0;
 	private pollId: number | null = null;
 	private lastRaw = "";
 	private lastMtime = 0;
@@ -75,7 +79,7 @@ export class AnnotationStore {
 	startWatching(): void {
 		this.stopWatching();
 		const adapter = this.app.vault.adapter;
-		if (adapter instanceof FileSystemAdapter) {
+		if (adapter instanceof FileSystemAdapter && Platform.isDesktop) {
 			void this.ensureDir().then(() => this.startFsWatch(adapter));
 		}
 		this.pollId = window.setInterval(() => {
@@ -84,6 +88,7 @@ export class AnnotationStore {
 	}
 
 	stopWatching(): void {
+		this.watchGeneration += 1;
 		this.watcher?.close();
 		this.watcher = null;
 		if (this.pollId !== null) {
@@ -198,18 +203,20 @@ export class AnnotationStore {
 	}
 
 	private startFsWatch(adapter: FileSystemAdapter): void {
-		try {
-			const nodeRequire = (window as unknown as { require?: (id: string) => typeof import("fs") })
-				.require;
-			if (!nodeRequire) return;
-			this.watcher = nodeRequire("fs").watch(
-				adapter.getFullPath(this.dirPath),
-				{ persistent: false },
-				() => this.scheduleReload(),
-			);
-		} catch {
-			// Polling still covers external writes.
-		}
+		if (!Platform.isDesktop) return;
+		const generation = this.watchGeneration;
+		void import("fs")
+			.then((fs) => {
+				if (generation !== this.watchGeneration) return;
+				this.watcher = fs.watch(
+					adapter.getFullPath(this.dirPath),
+					{ persistent: false },
+					() => this.scheduleReload(),
+				);
+			})
+			.catch(() => {
+				// Polling still covers external writes.
+			});
 	}
 
 	private notify(): void {

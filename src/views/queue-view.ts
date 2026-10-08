@@ -95,12 +95,12 @@ export class QueueView extends ItemView {
 			});
 
 			const missing = !this.plugin.fileExists(file);
-			header.createDiv({
+			header.createEl("div", {
 				cls: "tree-item-inner",
 				text: missing ? `${noteTitle(file)} (missing)` : noteTitle(file),
 			});
 			header
-				.createDiv({ cls: "tree-item-flair-outer" })
+				.createEl("div", { cls: "tree-item-flair-outer" })
 				.createEl("span", { cls: "tree-item-flair", text: String(items.length) });
 
 			header.addEventListener("click", () => void this.plugin.revealFile(file));

@@ -1,6 +1,9 @@
-import { PluginSettingTab, Setting, type App } from "obsidian";
+import { PluginSettingTab, type App, type SettingDefinitionItem } from "obsidian";
 import { DEFAULT_SETTINGS } from "../settings";
 import type AgentAnnotationsPlugin from "../main";
+
+const HOTKEY_HINT =
+	"Hotkeys while an annotation card is focused. Use Mod for ⌘ on Mac and Ctrl on Windows/Linux. The Add command can also be bound in Settings → Hotkeys.";
 
 export class AgentAnnotationsSettingTab extends PluginSettingTab {
 	constructor(
@@ -10,39 +13,44 @@ export class AgentAnnotationsSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-		containerEl.createEl("h2", { text: "Agent Annotations" });
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text: "Hotkeys while an annotation card is focused. Use Mod for ⌘ on Mac and Ctrl on Windows/Linux. The Add command can also be bound in Settings → Hotkeys.",
-		});
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				type: "group",
+				heading: "Agent Annotations",
+				items: [
+					{
+						name: "Save annotation",
+						desc: `${HOTKEY_HINT} Example: Mod+Enter`,
+						control: {
+							type: "text",
+							key: "saveHotkey",
+							placeholder: DEFAULT_SETTINGS.saveHotkey,
+						},
+					},
+					{
+						name: "Cancel annotation",
+						desc: "Example: Escape",
+						control: {
+							type: "text",
+							key: "cancelHotkey",
+							placeholder: DEFAULT_SETTINGS.cancelHotkey,
+						},
+					},
+				],
+			},
+		];
+	}
 
-		new Setting(containerEl)
-			.setName("Save annotation")
-			.setDesc("Example: Mod+Enter")
-			.addText((text) => {
-				text.setPlaceholder(DEFAULT_SETTINGS.saveHotkey);
-				text.setValue(this.plugin.settings.saveHotkey);
-				text.onChange((value) => {
-					this.plugin.settings.saveHotkey = value.trim() || DEFAULT_SETTINGS.saveHotkey;
-					void this.plugin.persistSettings();
-					this.plugin.refreshEditors();
-				});
-			});
-
-		new Setting(containerEl)
-			.setName("Cancel annotation")
-			.setDesc("Example: Escape")
-			.addText((text) => {
-				text.setPlaceholder(DEFAULT_SETTINGS.cancelHotkey);
-				text.setValue(this.plugin.settings.cancelHotkey);
-				text.onChange((value) => {
-					this.plugin.settings.cancelHotkey = value.trim() || DEFAULT_SETTINGS.cancelHotkey;
-					void this.plugin.persistSettings();
-					this.plugin.refreshEditors();
-				});
-			});
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key !== "saveHotkey" && key !== "cancelHotkey") {
+			await super.setControlValue(key, value);
+			return;
+		}
+		const fallback = DEFAULT_SETTINGS[key];
+		const next = typeof value === "string" && value.trim() ? value.trim() : fallback;
+		this.plugin.settings[key] = next;
+		await this.plugin.persistSettings();
+		this.plugin.refreshEditors();
 	}
 }

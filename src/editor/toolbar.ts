@@ -97,10 +97,11 @@ class SelectionToolbarPlugin {
 		}
 
 		if (!this.button) {
-			this.button = document.createElement("button");
-			this.button.type = "button";
-			this.button.className = "aa-selection-btn";
-			this.button.textContent = "+ Annotation";
+			this.button = createEl("button", {
+				cls: "aa-selection-btn",
+				text: "+ Annotation",
+				attr: { type: "button" },
+			});
 			this.button.addEventListener("mousedown", (event) => {
 				event.preventDefault();
 				event.stopPropagation();

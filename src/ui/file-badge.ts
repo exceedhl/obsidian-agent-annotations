@@ -12,9 +12,7 @@ export function updateFileBadge(view: MarkdownView, count: number): void {
 	}
 
 	if (!badge) {
-		badge = document.createElement("span");
-		badge.className = BADGE_CLASS;
-		title.appendChild(badge);
+		badge = title.createSpan({ cls: BADGE_CLASS });
 	}
 	badge.textContent = `Agent annotations · ${count}`;
 }

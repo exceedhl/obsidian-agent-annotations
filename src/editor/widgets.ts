@@ -118,12 +118,12 @@ function renderEditor(
 ): HTMLElement {
 	const card = el("div", "aa-card aa-card-editing");
 
-	const textarea = document.createElement("textarea");
-	textarea.className = "aa-card-input";
+	const textarea = card.createEl("textarea", {
+		cls: "aa-card-input",
+		placeholder: opts.placeholder ?? "",
+		attr: { rows: 2, "aria-label": opts.label },
+	});
 	textarea.value = initial;
-	textarea.rows = 2;
-	textarea.placeholder = opts.placeholder ?? "";
-	textarea.setAttribute("aria-label", opts.label);
 
 	const footer = el("div", "aa-card-footer");
 	const cancelBtn = button("Cancel", "aa-card-btn");
@@ -161,7 +161,6 @@ function renderEditor(
 		commit();
 	});
 
-	card.appendChild(textarea);
 	footer.appendChild(cancelBtn);
 	footer.appendChild(saveBtn);
 	card.appendChild(footer);
@@ -180,17 +179,14 @@ function draftEq(a: DraftAnnotation | null, b: DraftAnnotation | null): boolean 
 	return a.from === b.from && a.to === b.to && a.selectedText === b.selectedText;
 }
 
-function el(tag: string, className: string, text?: string): HTMLElement {
-	const node = document.createElement(tag);
-	node.className = className;
-	if (text !== undefined) node.textContent = text;
-	return node;
+function el(tag: keyof HTMLElementTagNameMap, className: string, text?: string): HTMLElement {
+	return createEl(tag, text === undefined ? { cls: className } : { cls: className, text });
 }
 
 function button(label: string, className: string): HTMLButtonElement {
-	const node = document.createElement("button");
-	node.type = "button";
-	node.className = className;
-	node.textContent = label;
-	return node;
+	return createEl("button", {
+		cls: className,
+		text: label,
+		attr: { type: "button" },
+	});
 }

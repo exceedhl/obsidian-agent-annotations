@@ -59,7 +59,8 @@ export function formatChord(spec: string, mac = isMac()): string {
 }
 
 export function isMac(): boolean {
-	return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+	const { Platform } = require("obsidian") as { Platform: { isMacOS: boolean } };
+	return Platform.isMacOS;
 }
 
 function normalizeKey(key: string): string {

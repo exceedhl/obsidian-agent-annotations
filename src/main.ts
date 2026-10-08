@@ -387,7 +387,7 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 	async activateQueue(): Promise<void> {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_QUEUE)[0];
 		if (existing) {
-			this.app.workspace.revealLeaf(existing);
+			await this.app.workspace.revealLeaf(existing);
 			return;
 		}
 		await this.app.workspace.ensureSideLeaf(VIEW_TYPE_QUEUE, "right", { reveal: true });
