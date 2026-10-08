@@ -10,6 +10,7 @@ import {
 	setEditingEffect,
 	setFlashEffect,
 } from "./state";
+import { cardWidgetAnchor } from "./table-anchor";
 import { CardStackWidget, type CardItem } from "./widgets";
 
 interface PendingDeco {
@@ -77,13 +78,15 @@ function buildDecorations(state: EditorState): DecorationSet {
 	}
 
 	for (const [pos, stack] of stacks) {
+		const anchor = cardWidgetAnchor(state.doc, pos);
 		pending.push({
-			from: pos,
-			to: pos,
+			from: anchor.pos,
+			to: anchor.pos,
 			deco: Decoration.widget({
 				widget: new CardStackWidget(stack.items, stack.draft, host),
 				block: true,
 				side: 1,
+				...(anchor.inlineOrder ? { inlineOrder: true } : {}),
 			}),
 		});
 	}
