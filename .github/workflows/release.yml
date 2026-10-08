@@ -44,6 +44,13 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
 
+          notes_args=(--generate-notes)
+          notes_file=".github/release-notes/${tag}.md"
+          if [ -f "$notes_file" ]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+
           gh release create "$tag" \
             --title="$tag" \
+            "${notes_args[@]}" \
             main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}

@@ -81,11 +81,11 @@
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 45%, transparent);
 }
 
-button.aa-card-close,
-button.aa-card-close:hover,
-button.aa-card-close:active,
-button.aa-card-close:focus,
-button.aa-card-close:focus-visible {
+.aa-card > button.aa-card-close,
+.aa-card > button.aa-card-close:hover,
+.aa-card > button.aa-card-close:active,
+.aa-card > button.aa-card-close:focus,
+.aa-card > button.aa-card-close:focus-visible {
 	appearance: none;
 	-webkit-appearance: none;
 	position: absolute;
@@ -99,9 +99,12 @@ button.aa-card-close:focus-visible {
 	padding: 0;
 	border: none;
 	border-radius: 0;
-	background: none !important;
-	background-color: transparent !important;
-	box-shadow: none !important;
+	--interactive-normal: transparent;
+	--interactive-hover: transparent;
+	--input-shadow: none;
+	--input-shadow-hover: none;
+	background-color: transparent;
+	box-shadow: none;
 	color: var(--text-faint);
 	font-family: var(--font-interface);
 	font-size: 14px;
@@ -111,8 +114,8 @@ button.aa-card-close:focus-visible {
 	outline: none;
 }
 
-button.aa-card-close:hover,
-button.aa-card-close:focus-visible {
+.aa-card > button.aa-card-close:hover,
+.aa-card > button.aa-card-close:focus-visible {
 	color: var(--text-normal);
 }
 
@@ -164,12 +167,12 @@ button.aa-card-close:focus-visible {
 	gap: 8px;
 }
 
-.aa-card-footer .aa-card-btn,
-.aa-card-footer .aa-card-btn:hover,
-.aa-card-footer .aa-card-btn:active,
-.aa-card-footer .aa-card-btn:focus,
-.aa-card-footer .aa-card-btn:focus-visible,
-.aa-card-footer .aa-card-btn:disabled {
+.aa-card > .aa-card-footer > .aa-card-btn,
+.aa-card > .aa-card-footer > .aa-card-btn:hover,
+.aa-card > .aa-card-footer > .aa-card-btn:active,
+.aa-card > .aa-card-footer > .aa-card-btn:focus,
+.aa-card > .aa-card-footer > .aa-card-btn:focus-visible,
+.aa-card > .aa-card-footer > .aa-card-btn:disabled {
 	appearance: none;
 	-webkit-appearance: none;
 	min-width: 0;
@@ -178,9 +181,12 @@ button.aa-card-close:focus-visible {
 	padding: 0;
 	border: none;
 	border-radius: 0;
-	background: none !important;
-	background-color: transparent !important;
-	box-shadow: none !important;
+	--interactive-normal: transparent;
+	--interactive-hover: transparent;
+	--input-shadow: none;
+	--input-shadow-hover: none;
+	background-color: transparent;
+	box-shadow: none;
 	font-size: 12px;
 	line-height: 1.2;
 	outline: none;
