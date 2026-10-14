@@ -2,7 +2,7 @@ import { RangeSetBuilder, StateField, type EditorState, type Transaction } from 
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { filePathFromState } from "./cm";
 import { annotationHostFacet } from "../host";
-import { locateSelection } from "../locate";
+import { locateApplied, locateSelection, visibleAppliedRange } from "../locate";
 import {
 	editorUiField,
 	refreshDecorationsEffect,
@@ -35,12 +35,28 @@ function buildDecorations(state: EditorState): DecorationSet {
 	if (!host || !ui) return Decoration.none;
 
 	const review = host.isReviewMode();
-	if (!review && !ui.draft) return Decoration.none;
-
 	const filePath = filePathFromState(state);
 	const doc = state.doc.toString();
 	const pending: PendingDeco[] = [];
 	const stacks = new Map<number, { items: CardItem[]; draft: typeof ui.draft }>();
+
+	if (filePath) {
+		for (const change of host.appliedForFile(filePath)) {
+			const located = locateApplied(doc, change);
+			if (!located) continue;
+			const range = visibleAppliedRange(doc, located);
+			if (range.from === range.to) continue;
+			const classes = ["aa-applied"];
+			if (ui.flashId === change.id) classes.push("aa-applied-flash");
+			pending.push({
+				from: range.from,
+				to: range.to,
+				deco: Decoration.mark({ class: classes.join(" ") }),
+			});
+		}
+	}
+
+	if (!review && !ui.draft) return finishDecorations(pending);
 
 	if (review && filePath) {
 		host.store.forFile(filePath).forEach((annotation, index) => {
@@ -91,6 +107,10 @@ function buildDecorations(state: EditorState): DecorationSet {
 		});
 	}
 
+	return finishDecorations(pending);
+}
+
+function finishDecorations(pending: PendingDeco[]): DecorationSet {
 	pending.sort((a, b) => a.from - b.from || a.to - b.to);
 	const builder = new RangeSetBuilder<Decoration>();
 	for (const item of pending) builder.add(item.from, item.to, item.deco);

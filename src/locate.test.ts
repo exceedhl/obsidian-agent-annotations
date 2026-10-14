@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { headingPathFromSource } from "./headings";
-import { annotationAtRange, extractContext, locateSelection, sameAnchor } from "./locate";
+import { annotationAtRange, extractContext, locateApplied, locateSelection, sameAnchor, visibleAppliedRange } from "./locate";
+import type { AppliedChange } from "./types";
 
 const doc = [
 	"# 认证",
@@ -107,6 +108,37 @@ describe("annotationAtRange", () => {
 			from + 2,
 		);
 		assert.equal(hit, null);
+	});
+});
+
+describe("locateApplied", () => {
+	it("finds a replacement and a deletion point", () => {
+		const updated = doc.replace("前文 Token 会在 24 小时后过期。", "前文 Token 会在 12 小时后过期。");
+		const from = updated.indexOf("12");
+		const replacement: AppliedChange = {
+			id: "c_1",
+			file: "docs/auth.md",
+			before: "24",
+			after: "12",
+			headingPath: ["认证", "令牌生命周期"],
+			...extractContext(updated, from, from + 2),
+		};
+		assert.deepEqual(locateApplied(updated, replacement), { from, to: from + 2 });
+
+		const deleted = doc.replace("前文 Token 会在 24 小时后过期。 后文", "前文 后文");
+		const at = deleted.indexOf("后文");
+		const removal: AppliedChange = {
+			id: "c_2",
+			file: "docs/auth.md",
+			before: "Token 会在 24 小时后过期。 ",
+			after: "",
+			...extractContext(deleted, at, at),
+		};
+		const point = locateApplied(deleted, removal);
+		assert.ok(point);
+		assert.equal(point.from, at);
+		const visible = visibleAppliedRange(deleted, point);
+		assert.equal(deleted.slice(visible.from, visible.to).startsWith("后文"), true);
 	});
 });
 

@@ -1,6 +1,8 @@
 import { headingPathFromSource, headingPathsEqual } from "./headings";
-import type { Annotation, TextRange } from "./types";
+import type { Annotation, AppliedChange, TextRange } from "./types";
 import { CONTEXT_RADIUS } from "./types";
+
+const APPLIED_ANCHOR_SPAN = 24;
 
 export type Locatable = Pick<Annotation, "selectedText" | "headingPath" | "prefix" | "suffix">;
 
@@ -53,6 +55,97 @@ function pathsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
 	const left = a ?? [];
 	const right = b ?? [];
 	return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+export function locateApplied(doc: string, change: AppliedChange): TextRange | null {
+	if (change.after) {
+		return locateSelection(doc, {
+			selectedText: change.after,
+			headingPath: change.headingPath,
+			prefix: change.prefix,
+			suffix: change.suffix,
+		});
+	}
+	const points = deletionPoints(doc, change);
+	if (points.length === 0) return null;
+	if (points.length === 1) {
+		const at = points[0]!;
+		return { from: at, to: at };
+	}
+
+	const item: Locatable = {
+		selectedText: "",
+		headingPath: change.headingPath,
+		prefix: change.prefix,
+		suffix: change.suffix,
+	};
+	const ranked = points
+		.map((from) => ({ from, score: scoreCandidate(doc, from, 0, item) }))
+		.sort((a, b) => b.score - a.score);
+	const winner = ranked[0]!;
+	const runnerUp = ranked[1];
+	if (runnerUp && runnerUp.score === winner.score) return null;
+	return { from: winner.from, to: winner.from };
+}
+
+export function visibleAppliedRange(doc: string, range: TextRange): TextRange {
+	if (range.from !== range.to) return range;
+	const forward = growForward(doc, range.to, APPLIED_ANCHOR_SPAN);
+	if (forward > range.to) return { from: range.to, to: forward };
+	const back = growBackward(doc, range.from, APPLIED_ANCHOR_SPAN);
+	if (back < range.from) return { from: back, to: range.from };
+	return range;
+}
+
+function deletionPoints(doc: string, change: AppliedChange): number[] {
+	const prefix = change.prefix ?? "";
+	const suffix = change.suffix ?? "";
+	const points: number[] = [];
+	if (prefix && suffix) {
+		const needle = prefix + suffix;
+		let cursor = 0;
+		while (cursor <= doc.length - needle.length) {
+			const index = doc.indexOf(needle, cursor);
+			if (index < 0) break;
+			points.push(index + prefix.length);
+			cursor = index + 1;
+		}
+		return points;
+	}
+	if (prefix) {
+		let cursor = 0;
+		while (cursor <= doc.length - prefix.length) {
+			const index = doc.indexOf(prefix, cursor);
+			if (index < 0) break;
+			points.push(index + prefix.length);
+			cursor = index + 1;
+		}
+		return points;
+	}
+	if (suffix) {
+		let cursor = 0;
+		while (cursor <= doc.length - suffix.length) {
+			const index = doc.indexOf(suffix, cursor);
+			if (index < 0) break;
+			points.push(index);
+			cursor = index + 1;
+		}
+	}
+	return points;
+}
+
+function growForward(doc: string, from: number, span: number): number {
+	let to = Math.min(doc.length, from + span);
+	const newline = doc.indexOf("\n", from);
+	if (newline !== -1 && newline < to) to = newline;
+	return to;
+}
+
+function growBackward(doc: string, to: number, span: number): number {
+	let from = Math.max(0, to - span);
+	const newline = doc.lastIndexOf("\n", to - 1);
+	if (newline !== -1 && newline + 1 > from) from = newline + 1;
+	return from;
 }
 
 export function locateSelection(doc: string, item: Locatable): TextRange | null {

@@ -10,7 +10,9 @@ import {
 } from "obsidian";
 import { FLASH_MS, VIEW_TYPE_QUEUE } from "./constants";
 import { filePathFromView, getEditorView, resolveEditorView, selectionOffsets } from "./editor/cm";
+import { AppliedStore, createVaultAppliedIO } from "./applied-store";
 import { annotationsDecoField } from "./editor/decorations";
+import { userBaselinePlugin } from "./editor/baseline";
 import {
 	editorUiField,
 	refreshDecorationsEffect,
@@ -22,10 +24,10 @@ import { selectionToolbarPlugin } from "./editor/toolbar";
 import { headingPathFromSource } from "./headings";
 import type { AnnotationHost } from "./host";
 import { annotationHostFacet } from "./host";
-import { annotationAtRange, extractContext, locateSelection } from "./locate";
+import { annotationAtRange, extractContext, locateApplied, locateSelection, visibleAppliedRange } from "./locate";
 import { DEFAULT_SETTINGS, mergeSettings, type PluginSettings } from "./settings";
 import { AnnotationStore } from "./store";
-import type { Annotation, DraftAnnotation } from "./types";
+import type { Annotation, AppliedChange, DraftAnnotation } from "./types";
 import { clearFileBadge, updateFileBadge } from "./ui/file-badge";
 import { AgentAnnotationsSettingTab } from "./ui/settings-tab";
 import { showUndoNotice } from "./ui/undo-notice";
@@ -33,6 +35,7 @@ import { QueueView } from "./views/queue-view";
 
 export default class AgentAnnotationsPlugin extends Plugin implements AnnotationHost {
 	store!: AnnotationStore;
+	applied!: AppliedStore;
 	settings: PluginSettings = { ...DEFAULT_SETTINGS };
 	private statusBarEl: HTMLElement | null = null;
 
@@ -41,12 +44,15 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 
 		this.store = new AnnotationStore(this.app);
 		await this.store.load();
+		this.applied = new AppliedStore(createVaultAppliedIO(this.app));
+		await this.applied.load(this.store.annotations);
 		this.store.startWatching();
 
 		this.registerEditorExtension([
 			annotationHostFacet.of(this),
 			editorUiField,
 			annotationsDecoField,
+			userBaselinePlugin,
 			selectionToolbarPlugin,
 		]);
 
@@ -116,26 +122,37 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 
 		this.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
-				if (file instanceof TFile) void this.store.remapFile(oldPath, file.path);
+				if (!(file instanceof TFile)) return;
+				this.applied.remapFile(oldPath, file.path);
+				void this.store.remapFile(oldPath, file.path);
 			}),
 		);
 
-		this.registerEvent(this.app.workspace.on("file-open", () => this.refreshBadges()));
+		this.registerEvent(
+			this.app.workspace.on("file-open", () => {
+				this.fillOpenBaselines();
+				this.refreshBadges();
+			}),
+		);
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshBadges()));
 
 		this.store.subscribe(() => {
 			this.updateStatusBar();
 			this.refreshBadges();
 			this.refreshEditors();
+			this.applied.syncQueue(this.store.snapshot);
 		});
+		this.applied.subscribe(() => this.refreshEditors());
 
 		this.app.workspace.onLayoutReady(() => {
+			this.fillOpenBaselines();
 			this.refreshBadges();
 			void this.activateQueue();
 		});
 	}
 
 	onunload(): void {
+		void this.applied?.flushBaselines();
 		this.store.stopWatching();
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			if (leaf.view instanceof MarkdownView) clearFileBadge(leaf.view);
@@ -173,6 +190,14 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 
 	fileExists(path: string): boolean {
 		return this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+	}
+
+	appliedForFile(path: string): AppliedChange[] {
+		return this.applied.forFile(path);
+	}
+
+	noteUserBaseline(path: string, text: string): void {
+		this.applied.noteUserEdit(path, text);
 	}
 
 	startInstructionFromEditor(
@@ -265,6 +290,7 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 			await this.persistSettings();
 		}
 
+		this.applied.seedBaseline(file, doc);
 		try {
 			await this.store.add({
 				file,
@@ -366,6 +392,48 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 		}, FLASH_MS);
 	}
 
+	async revealChange(change: AppliedChange): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(change.file);
+		if (!(file instanceof TFile)) {
+			new Notice(`File not found: ${change.file}`);
+			return;
+		}
+
+		const leaf = await this.openInEditor(file);
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView)) {
+			new Notice("Could not open the file in the editor.");
+			return;
+		}
+		const cm = getEditorView(view);
+		if (!cm) {
+			new Notice("Could not access the editor for this file.");
+			return;
+		}
+
+		const doc = cm.state.doc.toString();
+		const located = locateApplied(doc, change);
+		if (!located) {
+			new Notice("Could not locate this change in the file.");
+			return;
+		}
+		const range = visibleAppliedRange(doc, located);
+		if (range.from === range.to) {
+			const cursor = view.editor.offsetToPos(range.from);
+			view.editor.setCursor(cursor);
+			view.editor.scrollIntoView({ from: cursor, to: cursor }, true);
+		} else {
+			const from = view.editor.offsetToPos(range.from);
+			const to = view.editor.offsetToPos(range.to);
+			view.editor.setSelection(from, to);
+			view.editor.scrollIntoView({ from, to }, true);
+		}
+		cm.dispatch({ effects: setFlashEffect.of(change.id) });
+		window.setTimeout(() => {
+			cm.dispatch({ effects: setFlashEffect.of(null) });
+		}, FLASH_MS);
+	}
+
 	private async openInEditor(file: TFile) {
 		const alreadyOpen = this.app.workspace.getLeavesOfType("markdown").find((item) => {
 			return item.view instanceof MarkdownView && item.view.file?.path === file.path;
@@ -409,6 +477,16 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 			if (!(leaf.view instanceof MarkdownView)) continue;
 			const cm = getEditorView(leaf.view);
 			cm?.dispatch({ effects: refreshDecorationsEffect.of(null) });
+		}
+	}
+
+	private fillOpenBaselines(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (!(leaf.view instanceof MarkdownView)) continue;
+			const path = leaf.view.file?.path;
+			const cm = getEditorView(leaf.view);
+			if (!path || !cm) continue;
+			this.applied.fillIfMissing(path, cm.state.doc.toString());
 		}
 	}
 

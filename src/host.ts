@@ -1,9 +1,12 @@
 import type { EditorView } from "@codemirror/view";
 import { Facet } from "@codemirror/state";
 import type { AnnotationStore } from "./store";
+import type { AppliedChange } from "./types";
 
 export interface AnnotationHost {
 	readonly store: AnnotationStore;
+	appliedForFile(path: string): AppliedChange[];
+	noteUserBaseline(path: string, text: string): void;
 	isReviewMode(): boolean;
 	setReviewMode(on: boolean): Promise<void>;
 	beginDraft(view: EditorView, range?: { from: number; to: number }): void;

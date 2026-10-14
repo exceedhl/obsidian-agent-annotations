@@ -27,14 +27,29 @@ export interface DraftAnnotation {
 	suffix: string;
 }
 
+export interface AppliedChange {
+	id: string;
+	file: string;
+	before: string;
+	after: string;
+	headingPath?: string[];
+	prefix?: string;
+	suffix?: string;
+}
+
+export interface AppliedFile {
+	version: 1;
+	changes: AppliedChange[];
+}
+
 export interface EditorUiState {
 	draft: DraftAnnotation | null;
 	editingId: string | null;
 	flashId: string | null;
 }
 
-export type ParseResult =
-	| { ok: true; data: AnnotationFile }
+export type ParseResult<T = AnnotationFile> =
+	| { ok: true; data: T }
 	| { ok: false; error: string };
 
 export const CONTEXT_RADIUS = 40;
