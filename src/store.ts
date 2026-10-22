@@ -6,8 +6,10 @@ import {
 	parseAnnotationFile,
 	serializeAnnotationFile,
 } from "./schema";
-import { sameAnchor } from "./locate";
-import type { Annotation, AnnotationFile } from "./types";
+import { headingPathFromSource } from "./headings";
+import { locateSelection, sameAnchor } from "./locate";
+import { hasRange } from "./offsets";
+import type { Annotation, AnnotationFile, TextRange } from "./types";
 
 export type StoreListener = () => void;
 
@@ -34,6 +36,8 @@ export class AnnotationStore {
 	private lastMtime = 0;
 	private ignoreWatchUntil = 0;
 	private reloadTimer: number | null = null;
+	private shiftTimer: ReturnType<typeof setTimeout> | null = null;
+	private shiftDirty = false;
 
 	constructor(private readonly app: App) {}
 
@@ -119,6 +123,40 @@ export class AnnotationStore {
 		return annotation;
 	}
 
+	/** Move stored ranges with an edit and refresh the text now inside each one. */
+	shiftFile(path: string, doc: string, mapRange: (from: number, to: number) => TextRange): boolean {
+		return this.rewriteFile(path, (item) => {
+			if (!hasRange(item)) return item;
+			const next = mapRange(item.from, item.to);
+			return this.withRange(item, doc, next.from, next.to);
+		});
+	}
+
+	/** Fill ranges for rows that were saved before offsets existed. */
+	placeFile(path: string, doc: string): boolean {
+		return this.rewriteFile(path, (item) => {
+			if (hasRange(item)) return item;
+			const loc = locateSelection(doc, item);
+			if (!loc) return item;
+			return this.withRange(item, doc, loc.from, loc.to);
+		});
+	}
+
+	async flushShift(): Promise<void> {
+		if (this.shiftTimer !== null) {
+			clearTimeout(this.shiftTimer);
+			this.shiftTimer = null;
+		}
+		if (!this.shiftDirty) return;
+		this.shiftDirty = false;
+		try {
+			await this.persist();
+		} catch (error) {
+			this.shiftDirty = true;
+			console.error("Agent Annotations: could not save annotation positions", error);
+		}
+	}
+
 	async updateInstruction(id: string, instruction: string): Promise<void> {
 		this.assertWritable();
 		this.file = {
@@ -196,6 +234,55 @@ export class AnnotationStore {
 		await this.persist();
 	}
 
+	private rewriteFile(path: string, edit: (item: Annotation) => Annotation): boolean {
+		if (this.error) return false;
+		const file = path.replace(/\\/g, "/");
+		let changed = false;
+		const annotations = this.file.annotations.map((item) => {
+			if (item.file !== file) return item;
+			const next = edit(item);
+			if (
+				next.from === item.from &&
+				next.to === item.to &&
+				next.selectedText === item.selectedText &&
+				next.prefix === item.prefix &&
+				next.suffix === item.suffix &&
+				this.sameHeading(next.headingPath, item.headingPath)
+			) {
+				return item;
+			}
+			changed = true;
+			return next;
+		});
+		if (!changed) return false;
+		this.file = { version: 1, annotations };
+		this.scheduleShift();
+		return true;
+	}
+
+	private withRange(item: Annotation, doc: string, from: number, to: number): Annotation {
+		const headingPath = headingPathFromSource(doc, Math.min(from, doc.length));
+		const next: Annotation = {
+			id: item.id,
+			file: item.file,
+			instruction: item.instruction,
+			selectedText: doc.slice(from, Math.min(to, doc.length)),
+			from,
+			to,
+		};
+		if (headingPath.length) next.headingPath = headingPath;
+		return next;
+	}
+
+	private scheduleShift(): void {
+		this.shiftDirty = true;
+		if (this.shiftTimer !== null) clearTimeout(this.shiftTimer);
+		this.shiftTimer = setTimeout(() => {
+			this.shiftTimer = null;
+			void this.flushShift();
+		}, 200);
+	}
+
 	private assertWritable(): void {
 		if (this.error) {
 			throw new Error(`current.json is invalid: ${this.error}`);
@@ -217,6 +304,12 @@ export class AnnotationStore {
 			.catch(() => {
 				// Polling still covers external writes.
 			});
+	}
+
+	private sameHeading(left: string[] | undefined, right: string[] | undefined): boolean {
+		const a = left ?? [];
+		const b = right ?? [];
+		return a.length === b.length && a.every((part, index) => part === b[index]);
 	}
 
 	private notify(): void {

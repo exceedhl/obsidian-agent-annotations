@@ -30,27 +30,26 @@ The JSON is the only handoff. Do not ask the user to paste instructions.
 ## Protocol (do not weaken)
 
 1. Snapshot **every** `id` in `annotations` before you edit anything.
-2. Group rows by `file`. Locate each passage with `selectedText` first, then `headingPath`, then `prefix` / `suffix` (~40 characters of context). If two or more matches still tie, that id is failed — do not pick a winner.
+2. Group rows by `file`. Within a file, edit from the bottom upward (`from` descending) so earlier offsets stay valid. The passage is `file.slice(from, to)`. Before each edit, re-read that row from `current.json` — the plugin moves `from` / `to` when the note changes — and use those numbers. The slice must equal `selectedText`. If `from` / `to` are missing, or the slice does not match, that id is failed. Do not search the file for another copy.
 3. Once you start, you must give every snapshot id an outcome (done or failed). A locate failure on one row is not a reason to stop; mark it failed and continue. Processing a subset and calling the job done is a protocol failure.
 4. Make the smallest edit that satisfies `instruction`. Do not rewrite surrounding prose unless the instruction requires it.
 5. Overlapping or same-heading instructions become one coherent edit in the `.md` file. The report is still one line per id.
 6. Never change `instruction` text. Never write replies, status, completed, author, or thread fields into the JSON. `version` stays `1`.
 7. Edit the `.md` files first. Write `current.json` **once**, at the end, only after every id has an outcome:
    - All succeeded → write `{ "version": 1, "annotations": [] }` or delete the file.
-   - Some succeeded and some failed → keep **only** the failed rows, copied from the snapshot (same field values, do not rebuild a row). Drop successful ids.
+   - Some succeeded and some failed → re-read `current.json` and keep **only** the failed rows from that latest file (same field values, including the `from` / `to` the plugin may have moved). Do not rebuild a row. Drop successful ids. If the re-read fails, copy the failed rows from the snapshot instead.
    - Crash or exit before you finish the full snapshot → leave the file untouched. Do not write a partial queue.
 8. After write-back (or after deciding the file is unchanged), reply with the report in **Report**. Every snapshot id must appear once.
 
 ## Location
 
-For each row, find every occurrence of `selectedText` in that `file`. Score candidates with `headingPath` and `prefix` / `suffix`. Use the span only when exactly one candidate wins.
+For each row, read `from` and `to` and take `file.slice(from, to)`. Use that span only when it is exactly `selectedText`.
 
 Treat these as "not done" and keep the row:
 
 - The `.md` file is missing.
-- `selectedText` cannot be found.
-- Two or more matches still tie after `headingPath` + `prefix` / `suffix`.
-- The local text has drifted so the original span is gone.
+- `from` / `to` are missing.
+- The slice is not `selectedText` (the note drifted and the offsets were not updated).
 
 Do not invent a nearby substitute span. Do not delete a row because it looks stale.
 
@@ -70,14 +69,14 @@ Do not invent a nearby substitute span. Do not delete a row because it looks sta
       "instruction": "解释 refresh token。",
       "selectedText": "Token 会在 24 小时后过期。",
       "headingPath": ["认证", "令牌生命周期"],
-      "prefix": "…上文 40 字…",
-      "suffix": "…下文 40 字…"
+      "from": 120,
+      "to": 142
     }
   ]
 }
 ```
 
-Allowed fields on a row: `id`, `file`, `instruction`, `selectedText`, `headingPath`, `prefix`, `suffix`. Nothing else.
+Allowed fields on a row: `id`, `file`, `instruction`, `selectedText`, `headingPath`, `from`, `to`. Nothing else. Do not write `prefix` or `suffix`.
 
 ## Interaction
 
@@ -87,7 +86,7 @@ The human already wrote the instructions in Obsidian. Do not ask them to confirm
 - If the queue is empty or the JSON is invalid, say that in one or two sentences and stop.
 - Otherwise start work. Do not preview a plan and wait.
 - Do not narrate file reads or tool calls.
-- Do not dump `current.json`, `prefix`, `suffix`, or a full diff unless the user asks.
+- Do not dump `current.json` or a full diff unless the user asks.
 - Reply in the user's language.
 
 ## Report
@@ -101,7 +100,7 @@ Write the reply for a person in chat, not a log line. Structure:
    - invalid / missing → say so; file not written
 2. **By file** — one block per `file` (files in first-seen snapshot order). Inside a file, ids stay in snapshot order. Each id is one short line:
    - done — what changed in the note (one clause). Not “applied the instruction”.
-   - failed — why, in plain words. Use only: file missing / selected text not found / several matches / text has drifted. Say it stays in the pane.
+   - failed — why, in plain words. Use only: file missing / position missing / selected text does not match the range. Say it stays in the pane.
 3. Do not list ids that were not in the snapshot. Do not omit any snapshot id.
 
 Empty queue:
@@ -126,7 +125,7 @@ docs/auth.md
 - a_003  Shortened the section heading
 
 notes/api.md
-- a_002  Selected text not found. Left in the pane.
+- a_002  Selected text does not match the range. Left in the pane.
 
 Run the skill again after you fix the leftover note.
 ```

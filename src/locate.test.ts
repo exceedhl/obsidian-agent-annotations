@@ -69,7 +69,7 @@ describe("annotationAtRange", () => {
 		const to = from + 2;
 		const hit = annotationAtRange(
 			doc,
-			[{ id: "a", file: "note.md", instruction: "x", selectedText: "前文" }],
+			[{ id: "a", file: "note.md", instruction: "x", selectedText: "前文", from: -1, to: -1 }],
 			from,
 			to,
 		);
@@ -91,6 +91,8 @@ describe("annotationAtRange", () => {
 					headingPath: ["认证", "令牌生命周期"],
 					prefix: "前文 ",
 					suffix: " 后文",
+					from: -1,
+					to: -1,
 				},
 			],
 			second,
@@ -103,7 +105,7 @@ describe("annotationAtRange", () => {
 		const from = doc.indexOf("前文");
 		const hit = annotationAtRange(
 			doc,
-			[{ id: "a", file: "note.md", instruction: "x", selectedText: "后文" }],
+			[{ id: "a", file: "note.md", instruction: "x", selectedText: "后文", from: -1, to: -1 }],
 			from,
 			from + 2,
 		);
@@ -121,6 +123,8 @@ describe("locateApplied", () => {
 			before: "24",
 			after: "12",
 			headingPath: ["认证", "令牌生命周期"],
+			from: -1,
+			to: -1,
 			...extractContext(updated, from, from + 2),
 		};
 		assert.deepEqual(locateApplied(updated, replacement), { from, to: from + 2 });
@@ -132,6 +136,8 @@ describe("locateApplied", () => {
 			file: "docs/auth.md",
 			before: "Token 会在 24 小时后过期。 ",
 			after: "",
+			from: -1,
+			to: -1,
 			...extractContext(deleted, at, at),
 		};
 		const point = locateApplied(deleted, removal);
@@ -143,33 +149,18 @@ describe("locateApplied", () => {
 });
 
 describe("sameAnchor", () => {
-	it("does not treat bare selectedText as the same occurrence", () => {
+	it("does not treat two unplaced rows as the same occurrence", () => {
 		assert.equal(
-			sameAnchor(
-				{ file: "a.md", selectedText: "x" },
-				{ file: "a.md", selectedText: "x", headingPath: [], prefix: "", suffix: "" },
-			),
+			sameAnchor({ file: "a.md", from: -1, to: -1 }, { file: "a.md", from: -1, to: -1 }),
 			false,
 		);
 	});
 
-	it("matches when file, text, and context are the same", () => {
-		assert.equal(
-			sameAnchor(
-				{ file: "a.md", selectedText: "x", headingPath: ["H"], prefix: "p", suffix: "s" },
-				{ file: "a.md", selectedText: "x", headingPath: ["H"], prefix: "p", suffix: "s" },
-			),
-			true,
-		);
+	it("matches when the ranges overlap in the same file", () => {
+		assert.equal(sameAnchor({ file: "a.md", from: 1, to: 4 }, { file: "a.md", from: 3, to: 8 }), true);
 	});
 
-	it("distinguishes a different prefix", () => {
-		assert.equal(
-			sameAnchor(
-				{ file: "a.md", selectedText: "x", prefix: "one" },
-				{ file: "a.md", selectedText: "x", prefix: "two" },
-			),
-			false,
-		);
+	it("distinguishes ranges that do not overlap", () => {
+		assert.equal(sameAnchor({ file: "a.md", from: 1, to: 4 }, { file: "a.md", from: 4, to: 8 }), false);
 	});
 });

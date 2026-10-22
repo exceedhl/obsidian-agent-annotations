@@ -1,4 +1,5 @@
 import { headingPathFromSource, headingPathsEqual } from "./headings";
+import { hasRange, mapDocumentRange, type PosMap } from "./offsets";
 import type { Annotation, AppliedChange, TextRange } from "./types";
 import { CONTEXT_RADIUS } from "./types";
 
@@ -25,36 +26,75 @@ export function annotationAtRange(
 	to: number,
 ): Annotation | null {
 	if (from >= to) return null;
-	const selected = doc.slice(from, to);
 	for (const item of annotations) {
-		if (item.selectedText !== selected) continue;
+		if (hasRange(item) && item.to > item.from) {
+			if (item.from < to && from < item.to) return item;
+			continue;
+		}
 		const loc = locateSelection(doc, item);
 		if (loc && loc.from === from && loc.to === to) return item;
 	}
 	return null;
 }
 
-export function sameAnchor(
-	a: Pick<Annotation, "file" | "selectedText" | "headingPath" | "prefix" | "suffix">,
-	b: Pick<Annotation, "file" | "selectedText" | "headingPath" | "prefix" | "suffix">,
-): boolean {
+export function sameAnchor(a: Pick<Annotation, "file" | "from" | "to">, b: Pick<Annotation, "file" | "from" | "to">): boolean {
 	if (a.file.replace(/\\/g, "/") !== b.file.replace(/\\/g, "/")) return false;
-	if (a.selectedText !== b.selectedText) return false;
-	const headingPath = a.headingPath ?? [];
-	const prefix = a.prefix ?? "";
-	const suffix = a.suffix ?? "";
-	if (headingPath.length === 0 && !prefix && !suffix) return false;
-	return (
-		prefix === (b.prefix ?? "") &&
-		suffix === (b.suffix ?? "") &&
-		pathsEqual(headingPath, b.headingPath)
-	);
+	if (!hasRange(a) || !hasRange(b) || a.to === a.from || b.to === b.from) return false;
+	return a.from < b.to && b.from < a.to;
 }
 
-function pathsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
-	const left = a ?? [];
-	const right = b ?? [];
-	return left.length === right.length && left.every((item, index) => item === right[index]);
+export function annotationRange(
+	doc: string,
+	item: Annotation,
+	changes?: PosMap | null,
+	before?: string,
+): TextRange | null {
+	if (hasRange(item)) {
+		const mapped =
+			changes && before !== undefined
+				? mapDocumentRange(changes, before, doc, item.from, item.to)
+				: clampToDoc(doc, item.from, item.to);
+		if (mapped) return mapped;
+	}
+	return locateSelection(doc, item);
+}
+
+export function appliedRange(
+	doc: string,
+	change: AppliedChange,
+	changes?: PosMap | null,
+	before?: string,
+): TextRange | null {
+	if (hasRange(change)) {
+		const mapped =
+			changes && before !== undefined
+				? mapDocumentRange(changes, before, doc, change.from, change.to)
+				: clampToDoc(doc, change.from, change.to);
+		if (mapped) return mapped;
+	}
+	return locateApplied(doc, change) ?? uniqueAnchoredSpan(doc, change.prefix, change.suffix);
+}
+
+/** The single gap between a recorded prefix and suffix, when both still occur once. */
+export function uniqueAnchoredSpan(doc: string, prefix?: string, suffix?: string): TextRange | null {
+	if (!prefix || !suffix) return null;
+	const gaps: TextRange[] = [];
+	let cursor = 0;
+	while (cursor <= doc.length - prefix.length) {
+		const index = doc.indexOf(prefix, cursor);
+		if (index < 0) break;
+		const from = index + prefix.length;
+		const suffixAt = doc.indexOf(suffix, from);
+		if (suffixAt >= 0) gaps.push({ from, to: suffixAt });
+		cursor = index + 1;
+	}
+	if (gaps.length !== 1) return null;
+	return gaps[0]!;
+}
+
+function clampToDoc(doc: string, from: number, to: number): TextRange | null {
+	if (from < 0 || to > doc.length || to < from) return null;
+	return { from, to };
 }
 
 export function locateApplied(doc: string, change: AppliedChange): TextRange | null {
@@ -146,6 +186,50 @@ function growBackward(doc: string, to: number, span: number): number {
 	const newline = doc.lastIndexOf("\n", to - 1);
 	if (newline !== -1 && newline + 1 > from) from = newline + 1;
 	return from;
+}
+
+/**
+ * The text now sitting between an annotation's recorded prefix and suffix.
+ * Returns null when those anchors are missing or no longer unique.
+ */
+export function anchoredReplacement(
+	baseline: string,
+	doc: string,
+	item: Locatable,
+): { before: string; after: string; at: number } | null {
+	const prefix = item.prefix ?? "";
+	const suffix = item.suffix ?? "";
+	if (!prefix || !suffix || !item.selectedText) return null;
+	const old = locateSelection(baseline, item);
+	if (!old) return null;
+	const before = baseline.slice(old.from, old.to);
+	const gaps: TextRange[] = [];
+	let cursor = 0;
+	while (cursor <= doc.length - prefix.length) {
+		const index = doc.indexOf(prefix, cursor);
+		if (index < 0) break;
+		const from = index + prefix.length;
+		const suffixAt = doc.indexOf(suffix, from);
+		if (suffixAt >= 0) gaps.push({ from, to: suffixAt });
+		cursor = index + 1;
+	}
+	const gap = pickGap(doc, gaps, item);
+	if (!gap) return null;
+	const after = doc.slice(gap.from, gap.to);
+	if (after === before) return null;
+	return { before, after, at: gap.from };
+}
+
+function pickGap(doc: string, gaps: TextRange[], item: Locatable): TextRange | null {
+	if (gaps.length === 0) return null;
+	if (gaps.length === 1) return gaps[0]!;
+	const ranked = gaps
+		.map((gap) => ({ gap, score: scoreCandidate(doc, gap.from, 0, item) }))
+		.sort((a, b) => b.score - a.score);
+	const winner = ranked[0]!;
+	const runnerUp = ranked[1];
+	if (runnerUp && runnerUp.score === winner.score) return null;
+	return winner.gap;
 }
 
 export function locateSelection(doc: string, item: Locatable): TextRange | null {

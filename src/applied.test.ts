@@ -14,6 +14,8 @@ function annotation(id: string, path = file): Annotation {
 		instruction: `do ${id}`,
 		selectedText: "soon",
 		headingPath: ["Auth"],
+		from: 0,
+		to: 4,
 	};
 }
 
@@ -69,6 +71,8 @@ describe("applied.json", () => {
 			headingPath: ["Auth"],
 			prefix: "Token expires ",
 			suffix: ".",
+			from: 14,
+			to: 18,
 		};
 		const raw = serializeAppliedFile({
 			version: 1,
@@ -79,6 +83,9 @@ describe("applied.json", () => {
 		assert.equal(parsed.ok, true);
 		if (parsed.ok) assert.deepEqual(parsed.data.changes, [change]);
 		assert.equal(parseAppliedFile("{").ok, false);
+		const extra = parseAppliedFile(`${raw}{\n  "version": 1,\n  "changes": []\n}\n`);
+		assert.equal(extra.ok, true);
+		if (extra.ok) assert.equal(extra.data.changes.length, 1);
 	});
 });
 
@@ -165,14 +172,69 @@ describe("AppliedStore", () => {
 		assert.equal(reloaded.changes[0]?.after, "later");
 	});
 
+	it("records each separated edit instead of one span", async () => {
+		const original = "# Auth\n\nToken expires soon.\n\nKeep this paragraph.\n\nRefresh is manual.\n";
+		const edited = "# Auth\n\nToken expires later.\n\nKeep this paragraph.\n\nRefresh is automatic.\n";
+		const env = memory({ [file]: original });
+		const store = await open(env, [annotation("a_1"), annotation("a_2")]);
+		env.notes.set(file, edited);
+		store.syncQueue(snapshot([]));
+		await store.whenIdle();
+		assert.deepEqual(
+			store.changes.map((item) => [item.before, item.after]),
+			[
+				["soon", "later"],
+				["manual", "automatic"],
+			],
+		);
+	});
+
+	it("splits one stored span that covers several edits", async () => {
+		const before = "Token expires soon.\n\nKeep this paragraph.\n\nRefresh is manual.\n";
+		const after = "Token expires later.\n\nKeep this paragraph.\n\nRefresh is automatic.\n";
+		const doc = `# Auth\n\n${after}`;
+		const change: AppliedChange = { id: "c_1", file, before, after, from: -1, to: -1 };
+		const env = memory({ [file]: doc }, serializeAppliedFile({ version: 1, changes: [change] }));
+		const store = await open(env, []);
+		assert.equal(store.changes.length, 2);
+		assert.equal(store.changes[0]?.id, "c_1");
+		assert.equal(store.changes[0]?.before, "soon");
+		assert.equal(store.changes[1]?.before, "manual");
+		assert.equal(store.changes[1]?.after, "automatic");
+	});
+
+	it("keeps the annotated span when the diff would cut it at shared words", async () => {
+		const selected = "中，$A$ 表示使用测度 $\\mu$；它不是一次积分。";
+		const prefix = "记号之后。\n";
+		const suffix = "\n后文不动。";
+		const original = `${prefix}${selected}${suffix}\n`;
+		const replaced = "中，$A$ 表示使用测度 $\\mu$。下标不是声明，并由全部这些数值组成新测度。";
+		const edited = `${prefix}${replaced}${suffix}\n`;
+		const marked = {
+			...annotation("a_1"),
+			selectedText: selected,
+			prefix,
+			suffix,
+			headingPath: undefined,
+		};
+		const env = memory({ [file]: original });
+		const store = await open(env, [marked]);
+		env.notes.set(file, edited);
+		store.syncQueue(snapshot([]));
+		await store.whenIdle();
+		assert.equal(store.changes.length, 1);
+		assert.equal(store.changes[0]?.before, selected);
+		assert.equal(store.changes[0]?.after, replaced);
+	});
+
 	it("joins a rewrite that was stored as several pieces", async () => {
 		const path = "00_Inbox/scratchpad.md";
 		const poem = "窗先暗下来。\n灯留一角，桌子空着。\n笔停在半句上。\n门外脚步过去，没有敲门。";
 		const doc = `# 2026-10-14 16:48\n\n${poem}`;
 		const pieces: AppliedChange[] = [
-			{ id: "c_1", file: path, before: "另外", after: "窗先暗下来。\n灯留" },
-			{ id: "c_2", file: path, before: "个诗", after: "角，桌子空着。\n笔停在半" },
-			{ id: "c_3", file: path, before: "", after: "上。\n门外脚步过去，没有敲门。" },
+			{ id: "c_1", file: path, before: "另外", after: "窗先暗下来。\n灯留", from: -1, to: -1 },
+			{ id: "c_2", file: path, before: "个诗", after: "角，桌子空着。\n笔停在半", from: -1, to: -1 },
+			{ id: "c_3", file: path, before: "", after: "上。\n门外脚步过去，没有敲门。", from: -1, to: -1 },
 		];
 		const env = memory({ [path]: doc }, serializeAppliedFile({ version: 1, changes: pieces }));
 		const store = await open(env, []);
@@ -215,6 +277,23 @@ describe("AppliedStore", () => {
 		await store.restore(removed);
 		assert.equal(store.changes.length, 1);
 		assert.equal(store.changes[0]?.after, "later");
+	});
+
+	it("moves applied offsets when the note changes and keeps the recorded text", async () => {
+		const original = "# Auth\n\nToken expires soon.\n";
+		const edited = "# Auth\n\nToken expires later.\n";
+		const env = memory({ [file]: original });
+		const store = await open(env, [annotation("a_1")]);
+		env.notes.set(file, edited);
+		store.syncQueue(snapshot([]));
+		await store.whenIdle();
+		const change = store.changes[0]!;
+		assert.ok(change.from >= 0);
+		store.shiftFile(file, (start, end) => ({ from: start + 2, to: end + 2 }));
+		assert.equal(store.changes[0]?.from, change.from + 2);
+		assert.equal(store.changes[0]?.to, change.to + 2);
+		assert.equal(store.changes[0]?.before, change.before);
+		assert.equal(store.changes[0]?.after, change.after);
 	});
 
 	it("reads the note again when the queue moves before the file does", async () => {

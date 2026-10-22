@@ -1,12 +1,13 @@
 import type { EditorView } from "@codemirror/view";
 import { Facet } from "@codemirror/state";
 import type { AnnotationStore } from "./store";
+import type { PosMap } from "./offsets";
 import type { AppliedChange } from "./types";
 
 export interface AnnotationHost {
 	readonly store: AnnotationStore;
 	appliedForFile(path: string): AppliedChange[];
-	noteUserBaseline(path: string, text: string): void;
+	trackDocumentEdit(path: string, changes: PosMap, before: string, after: string, user: boolean): void;
 	isReviewMode(): boolean;
 	setReviewMode(on: boolean): Promise<void>;
 	beginDraft(view: EditorView, range?: { from: number; to: number }): void;

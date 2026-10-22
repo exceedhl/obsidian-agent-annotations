@@ -15,11 +15,13 @@ function isUserEdit(update: ViewUpdate): boolean {
 export const userBaselinePlugin = ViewPlugin.fromClass(
 	class {
 		update(update: ViewUpdate): void {
-			if (!update.docChanged || !isUserEdit(update)) return;
+			if (!update.docChanged) return;
 			const host = update.state.facet(annotationHostFacet);
 			const path = filePathFromState(update.state);
 			if (!host || !path) return;
-			host.noteUserBaseline(path, update.state.doc.toString());
+			const before = update.startState.doc.toString();
+			const after = update.state.doc.toString();
+			host.trackDocumentEdit(path, update.changes, before, after, isUserEdit(update));
 		}
 	},
 );

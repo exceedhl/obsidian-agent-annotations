@@ -15,8 +15,8 @@ function sample(id: string, extra?: Partial<Annotation>): Annotation {
 		instruction: `do ${id}`,
 		selectedText: "Token expires.",
 		headingPath: ["Auth"],
-		prefix: "Hello ",
-		suffix: " Bye",
+		from: 6,
+		to: 20,
 		...extra,
 	};
 }
@@ -37,18 +37,42 @@ describe("parseAnnotationFile", () => {
 		assert.equal(parseAnnotationFile('{"version":1,"annotations":[{"id":"a_1"}]}').ok, false);
 	});
 
-	it("keeps only protocol fields when serializing", () => {
+	it("keeps from/to and drops legacy context once the range is known", () => {
 		const raw = serializeAnnotationFile({
 			version: 1,
 			annotations: [
 				{
 					...sample("a_1"),
 					status: "done",
-				} as Annotation & { status: string },
+					prefix: "Hello ",
+					suffix: " Bye",
+				} as Annotation & { status: string; prefix: string; suffix: string },
 			],
 		});
 		assert.equal(raw.includes("status"), false);
-		assert.equal(parseAnnotationFile(raw).ok, true);
+		assert.equal(raw.includes("prefix"), false);
+		assert.equal(raw.includes('"from"'), true);
+		const parsed = parseAnnotationFile(raw);
+		assert.equal(parsed.ok, true);
+		if (parsed.ok) {
+			assert.equal(parsed.data.annotations[0]?.from, 6);
+			assert.equal(parsed.data.annotations[0]?.to, 20);
+		}
+	});
+
+	it("keeps legacy prefix and suffix until a range exists", () => {
+		const raw = serializeAnnotationFile({
+			version: 1,
+			annotations: [sample("a_1", { from: -1, to: -1, prefix: "Hello ", suffix: " Bye" })],
+		});
+		assert.equal(raw.includes('"from"'), false);
+		assert.equal(raw.includes("Hello "), true);
+		const parsed = parseAnnotationFile(raw);
+		assert.equal(parsed.ok, true);
+		if (parsed.ok) {
+			assert.equal(parsed.data.annotations[0]?.from, -1);
+			assert.equal(parsed.data.annotations[0]?.prefix, "Hello ");
+		}
 	});
 });
 

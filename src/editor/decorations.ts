@@ -2,7 +2,8 @@ import { RangeSetBuilder, StateField, type EditorState, type Transaction } from 
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { filePathFromState } from "./cm";
 import { annotationHostFacet } from "../host";
-import { locateApplied, locateSelection, visibleAppliedRange } from "../locate";
+import { annotationRange, appliedRange, visibleAppliedRange } from "../locate";
+import type { PosMap } from "../offsets";
 import {
 	editorUiField,
 	refreshDecorationsEffect,
@@ -29,7 +30,7 @@ function hasRebuildEffect(tr: Transaction): boolean {
 	);
 }
 
-function buildDecorations(state: EditorState): DecorationSet {
+function buildDecorations(state: EditorState, changes?: PosMap | null, before?: string): DecorationSet {
 	const host = state.facet(annotationHostFacet);
 	const ui = state.field(editorUiField, false);
 	if (!host || !ui) return Decoration.none;
@@ -42,7 +43,7 @@ function buildDecorations(state: EditorState): DecorationSet {
 
 	if (filePath) {
 		for (const change of host.appliedForFile(filePath)) {
-			const located = locateApplied(doc, change);
+			const located = appliedRange(doc, change, changes, before);
 			if (!located) continue;
 			const range = visibleAppliedRange(doc, located);
 			if (range.from === range.to) continue;
@@ -60,8 +61,8 @@ function buildDecorations(state: EditorState): DecorationSet {
 
 	if (review && filePath) {
 		host.store.forFile(filePath).forEach((annotation, index) => {
-			const range = locateSelection(doc, annotation);
-			if (!range || range.to < range.from) return;
+			const range = annotationRange(doc, annotation, changes, before);
+			if (!range || range.to <= range.from) return;
 			const classes = ["aa-highlight"];
 			if (ui.flashId === annotation.id) classes.push("aa-highlight-flash");
 			pending.push({
@@ -93,16 +94,31 @@ function buildDecorations(state: EditorState): DecorationSet {
 		stacks.set(lineEnd, stack);
 	}
 
+	const anchored = new Map<number, { items: CardItem[]; draft: typeof ui.draft; inlineOrder: boolean }>();
 	for (const [pos, stack] of stacks) {
 		const anchor = cardWidgetAnchor(state.doc, pos);
+		const found = anchored.get(anchor.pos);
+		if (!found) {
+			anchored.set(anchor.pos, {
+				items: [...stack.items],
+				draft: stack.draft,
+				inlineOrder: anchor.inlineOrder,
+			});
+			continue;
+		}
+		found.items.push(...stack.items);
+		if (stack.draft) found.draft = stack.draft;
+	}
+
+	for (const [pos, stack] of anchored) {
 		pending.push({
-			from: anchor.pos,
-			to: anchor.pos,
+			from: pos,
+			to: pos,
 			deco: Decoration.widget({
 				widget: new CardStackWidget(stack.items, stack.draft, host),
 				block: true,
 				side: 1,
-				...(anchor.inlineOrder ? { inlineOrder: true } : {}),
+				...(stack.inlineOrder ? { inlineOrder: true } : {}),
 			}),
 		});
 	}
@@ -125,7 +141,11 @@ export const annotationsDecoField = StateField.define<DecorationSet>({
 			filePathFromState(tr.startState) !== filePathFromState(tr.state) ||
 			hasRebuildEffect(tr)
 		) {
-			return buildDecorations(tr.state);
+			return buildDecorations(
+				tr.state,
+				tr.docChanged ? tr.changes : null,
+				tr.docChanged ? tr.startState.doc.toString() : undefined,
+			);
 		}
 		return deco;
 	},

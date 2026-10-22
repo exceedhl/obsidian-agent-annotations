@@ -1,11 +1,12 @@
 import { APPLIED_FILE_NAME, APPLIED_RETRY_MS, BASELINES_FILE_NAME, STORE_DIR_NAME } from "./constants";
-import { diffHunks } from "./diff";
+import { diffHunks, type TextHunk } from "./diff";
 import { headingPathFromSource } from "./headings";
 import { generateId } from "./ids";
-import { extractContext, locateApplied } from "./locate";
+import { anchoredReplacement, appliedRange, extractContext } from "./locate";
+import { hasRange } from "./offsets";
 import { parseAppliedFile, serializeAppliedFile } from "./applied-schema";
 import type { StoreSnapshot } from "./store";
-import type { Annotation, AppliedChange } from "./types";
+import { CONTEXT_RADIUS, type Annotation, type AppliedChange, type TextRange } from "./types";
 import type { App } from "obsidian";
 
 export interface AppliedIO {
@@ -66,6 +67,8 @@ export class AppliedStore {
 	private chain: Promise<void> = Promise.resolve();
 	private baselinesDirty = false;
 	private baselineTimer: ReturnType<typeof setTimeout> | null = null;
+	private positionTimer: ReturnType<typeof setTimeout> | null = null;
+	private positionDirty = false;
 
 	constructor(
 		private readonly io: AppliedIO,
@@ -163,6 +166,53 @@ export class AppliedStore {
 		this.baselines.set(file, text);
 	}
 
+	shiftFile(path: string, mapRange: (from: number, to: number) => TextRange): boolean {
+		const file = normalize(path);
+		let changed = false;
+		this.changes = this.changes.map((item) => {
+			if (item.file !== file || !hasRange(item)) return item;
+			const next = mapRange(item.from, item.to);
+			if (next.from === item.from && next.to === item.to) return item;
+			changed = true;
+			return { ...item, from: next.from, to: next.to };
+		});
+		if (changed) this.schedulePositions();
+		return changed;
+	}
+
+	placeFile(path: string, doc: string): boolean {
+		const file = normalize(path);
+		let changed = false;
+		this.changes = this.changes.map((item) => {
+			if (item.file !== file || hasRange(item)) return item;
+			const range = appliedRange(doc, item);
+			if (!range) return item;
+			changed = true;
+			return { ...item, from: range.from, to: range.to };
+		});
+		if (changed) this.schedulePositions();
+		return changed;
+	}
+
+	async flushPositions(): Promise<void> {
+		if (this.positionTimer !== null) {
+			clearTimeout(this.positionTimer);
+			this.positionTimer = null;
+		}
+		if (!this.positionDirty) return;
+		await this.enqueue(async () => {
+			if (!this.positionDirty) return;
+			this.positionDirty = false;
+			try {
+				await this.persist();
+				this.notify();
+			} catch (error) {
+				this.positionDirty = true;
+				console.error("Agent Annotations: could not save applied positions", error);
+			}
+		});
+	}
+
 	noteUserEdit(path: string, text: string): void {
 		const file = normalize(path);
 		if (!this.tracked.has(file)) return;
@@ -227,7 +277,8 @@ export class AppliedStore {
 		const baselineSnapshot = new Map(this.baselines);
 		if (removed.length > 0) {
 			const texts = await this.readNotes(removed, baselineSnapshot);
-			const changes = this.changesFor(removed, texts, baselineSnapshot);
+			const gone = prev.filter((item) => !next.some((entry) => entry.id === item.id));
+			const changes = this.changesFor(removed, texts, baselineSnapshot, gone);
 			if (changes.length > 0) {
 				const stillTracked = new Set(next.map((item) => normalize(item.file)));
 				for (const file of removed) {
@@ -300,6 +351,7 @@ export class AppliedStore {
 		files: string[],
 		texts: Map<string, string | null>,
 		baselines: ReadonlyMap<string, string>,
+		annotations: Annotation[],
 	): AppliedChange[] {
 		const changes: AppliedChange[] = [];
 		const ids: string[] = [];
@@ -307,25 +359,40 @@ export class AppliedStore {
 			const baseline = baselines.get(file);
 			const text = texts.get(file);
 			if (baseline === undefined || text == null) continue;
-			for (const hunk of diffHunks(baseline, text)) {
-				const id = generateId(ids, "c_");
-				ids.push(id);
-				const end = hunk.at + hunk.after.length;
-				const context = extractContext(text, hunk.at, end);
-				const headingPath = headingPathFromSource(text, hunk.at);
-				const change: AppliedChange = {
-					id,
-					file,
-					before: hunk.before,
-					after: hunk.after,
-				};
-				if (headingPath.length) change.headingPath = headingPath;
-				if (context.prefix) change.prefix = context.prefix;
-				if (context.suffix) change.suffix = context.suffix;
-				changes.push(change);
+			const spans: TextHunk[] = [];
+			for (const item of annotations) {
+				if (normalize(item.file) !== file) continue;
+				const hit = anchoredReplacement(baseline, text, item);
+				if (hit) spans.push(hit);
 			}
+			for (const hunk of diffHunks(baseline, text)) {
+				if (spans.some((span) => rangesOverlap(span, hunk))) continue;
+				spans.push(hunk);
+			}
+			spans.sort((a, b) => a.at - b.at);
+			for (const hunk of spans) changes.push(this.changeFromHunk(file, text, hunk, ids));
 		}
 		return changes;
+	}
+
+	private changeFromHunk(file: string, text: string, hunk: TextHunk, ids: string[]): AppliedChange {
+		const id = generateId(ids, "c_");
+		ids.push(id);
+		const end = hunk.at + hunk.after.length;
+		const context = extractContext(text, hunk.at, end);
+		const headingPath = headingPathFromSource(text, hunk.at);
+		const change: AppliedChange = {
+			id,
+			file,
+			before: hunk.before,
+			after: hunk.after,
+			from: hunk.at,
+			to: end,
+		};
+		if (headingPath.length) change.headingPath = headingPath;
+		if (context.prefix) change.prefix = context.prefix;
+		if (context.suffix) change.suffix = context.suffix;
+		return change;
 	}
 
 	private pruneBaselines(): void {
@@ -334,6 +401,18 @@ export class AppliedStore {
 			this.baselines.delete(file);
 			this.baselinesDirty = true;
 		}
+	}
+
+	private schedulePositions(): void {
+		this.positionDirty = true;
+		if (this.positionTimer !== null) clearTimeout(this.positionTimer);
+		this.positionTimer = setTimeout(() => {
+			this.positionTimer = null;
+			void this.flushPositions().catch((error) => {
+				this.positionDirty = true;
+				console.error("Agent Annotations: could not save applied positions", error);
+			});
+		}, 200);
 	}
 
 	private touchBaselines(): void {
@@ -350,25 +429,29 @@ export class AppliedStore {
 		for (const change of this.changes) {
 			if (!files.includes(change.file)) files.push(change.file);
 		}
+		const ids = new Set(this.changes.map((item) => item.id));
 		const healed: AppliedChange[] = [];
 		let changed = false;
 		for (const file of files) {
 			const items = this.changes.filter((item) => item.file === file);
-			if (items.length < 2) {
-				healed.push(...items);
-				continue;
-			}
 			let doc: string | null = null;
 			try {
 				doc = await this.io.readNote(file);
 			} catch {
 				doc = null;
 			}
-			const merged = doc == null ? items : coalesceFile(items, doc);
+			const placed = items.map((item) => placeChange(item, doc));
+			const expanded = placed.flatMap((item) => expandChange(item, doc, ids));
+			const merged = doc == null ? expanded : coalesceFile(expanded, doc);
 			if (
 				merged.length !== items.length ||
 				merged.some(
-					(item, index) => item.before !== items[index]?.before || item.after !== items[index]?.after,
+					(item, index) =>
+						item.id !== items[index]?.id ||
+						item.before !== items[index]?.before ||
+						item.after !== items[index]?.after ||
+						item.from !== items[index]?.from ||
+						item.to !== items[index]?.to,
 				)
 			) {
 				changed = true;
@@ -412,17 +495,37 @@ export class AppliedStore {
 	}
 }
 
+function placeChange(change: AppliedChange, doc: string | null): AppliedChange {
+	if (hasRange(change) || !doc) return change;
+	const range = appliedRange(doc, change);
+	if (!range) return change;
+	return { ...change, from: range.from, to: range.to };
+}
+
+function rangesOverlap(a: TextHunk, b: TextHunk): boolean {
+	const aEnd = a.at + a.after.length;
+	const bEnd = b.at + b.after.length;
+	if (a.at === aEnd) return a.at >= b.at && a.at <= bEnd;
+	if (b.at === bEnd) return b.at >= a.at && b.at <= aEnd;
+	return a.at < bEnd && b.at < aEnd;
+}
+
 function coalesceFile(changes: AppliedChange[], doc: string): AppliedChange[] {
 	const merged: AppliedChange[] = [];
 	for (const change of changes) {
 		const prev = merged[merged.length - 1];
-		const prevRange = prev ? locateApplied(doc, prev) : null;
-		const range = locateApplied(doc, change);
+		const prevRange = prev ? appliedRange(doc, prev) : null;
+		const range = appliedRange(doc, change);
 		if (!prev || !prevRange || !range || range.from < prevRange.to) {
 			merged.push(change);
 			continue;
 		}
 		const gap = doc.slice(prevRange.to, range.from);
+		// Only stitch fragments of one rewrite. A real gap between edits stays split.
+		if (gap.includes("\n") || gap.includes("\r") || gap.length > 4) {
+			merged.push(change);
+			continue;
+		}
 		const from = prevRange.from;
 		const to = range.to;
 		const context = extractContext(doc, from, to);
@@ -432,6 +535,8 @@ function coalesceFile(changes: AppliedChange[], doc: string): AppliedChange[] {
 			file: prev.file,
 			before: prev.before + gap + change.before,
 			after: doc.slice(from, to),
+			from,
+			to,
 		};
 		if (headingPath.length) next.headingPath = headingPath;
 		if (context.prefix) next.prefix = context.prefix;
@@ -439,6 +544,49 @@ function coalesceFile(changes: AppliedChange[], doc: string): AppliedChange[] {
 		merged[merged.length - 1] = next;
 	}
 	return merged;
+}
+
+function expandChange(change: AppliedChange, doc: string | null, ids: Set<string>): AppliedChange[] {
+	const hunks = diffHunks(change.before, change.after);
+	if (hunks.length <= 1) return [change];
+	const located = doc ? appliedRange(doc, change) : null;
+	return hunks.map((hunk, index) => {
+		const id = index === 0 ? change.id : generateId(ids, "c_");
+		ids.add(id);
+		const next: AppliedChange = {
+			id,
+			file: change.file,
+			before: hunk.before,
+			after: hunk.after,
+			from: -1,
+			to: -1,
+		};
+		if (doc && located) {
+			const from = located.from + hunk.at;
+			const to = from + hunk.after.length;
+			next.from = from;
+			next.to = to;
+			const context = extractContext(doc, from, to);
+			const headingPath = headingPathFromSource(doc, from);
+			if (headingPath.length) next.headingPath = headingPath;
+			if (context.prefix) next.prefix = context.prefix;
+			if (context.suffix) next.suffix = context.suffix;
+			return next;
+		}
+		const from = hunk.at;
+		const to = from + hunk.after.length;
+		const prefix = (
+			(index === 0 ? (change.prefix ?? "") : "") + change.after.slice(Math.max(0, from - CONTEXT_RADIUS), from)
+		).slice(-CONTEXT_RADIUS);
+		const suffix = (
+			change.after.slice(to, to + CONTEXT_RADIUS) +
+			(index === hunks.length - 1 ? (change.suffix ?? "") : "")
+		).slice(0, CONTEXT_RADIUS);
+		if (index === 0 && change.headingPath?.length) next.headingPath = [...change.headingPath];
+		if (prefix) next.prefix = prefix;
+		if (suffix) next.suffix = suffix;
+		return next;
+	});
 }
 
 function removedFiles(prev: Annotation[], next: Annotation[]): string[] {

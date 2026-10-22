@@ -48,14 +48,25 @@ describe("diffHunks", () => {
 		assert.equal(hunks[0]?.after, "aaa\nbbb");
 	});
 
-	it("ignores a trailing newline and keeps distant edits in one span", () => {
+	it("ignores a trailing newline and keeps a blank line inside one rewrite", () => {
 		assert.deepEqual(diffHunks("foo\n", "foo"), []);
-		const mid = "same\n".repeat(40);
-		const before = `AAA\n${mid}BBB\n`;
-		const after = `aaa\n${mid}bbb\n`;
-		const hunks = diffHunks(before, after);
+		const hunks = diffHunks("Alpha\n\nBeta\n", "Delta\n\nGamma\n");
 		assert.equal(hunks.length, 1);
-		assert.equal(hunks[0]?.before, `AAA\n${mid}BBB`);
-		assert.equal(hunks[0]?.after, `aaa\n${mid}bbb`);
+		assert.equal(hunks[0]?.before, "Alpha\n\nBeta");
+		assert.equal(hunks[0]?.after, "Delta\n\nGamma");
+	});
+
+	it("splits edits that keep a paragraph between them", () => {
+		const mid = "这段不动。\n";
+		const before = `Alpha\n\n${mid}\nBeta\n`;
+		const after = `Delta\n\n${mid}\nGamma\n`;
+		const hunks = diffHunks(before, after);
+		assert.equal(hunks.length, 2);
+		assert.equal(hunks[0]?.before, "Alpha");
+		assert.equal(hunks[0]?.after, "Delta");
+		assert.equal(hunks[1]?.before, "Beta");
+		assert.equal(hunks[1]?.after, "Gamma");
+		assert.equal(after.slice(hunks[0]!.at, hunks[0]!.at + hunks[0]!.after.length), hunks[0]?.after);
+		assert.equal(after.slice(hunks[1]!.at, hunks[1]!.at + hunks[1]!.after.length), hunks[1]?.after);
 	});
 });

@@ -1,3 +1,4 @@
+import { readRange } from "./offsets";
 import type { Annotation, AnnotationFile, ParseResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 
@@ -6,7 +7,15 @@ export function emptyAnnotationFile(): AnnotationFile {
 }
 
 export function serializeAnnotationFile(file: AnnotationFile): string {
-	return `${JSON.stringify(sanitizeFile(file), null, 2)}\n`;
+	const clean = sanitizeFile(file);
+	return `${JSON.stringify(
+		{
+			version: clean.version,
+			annotations: clean.annotations.map(annotationJson),
+		},
+		null,
+		2,
+	)}\n`;
 }
 
 export function parseAnnotationFile(raw: string): ParseResult {
@@ -49,6 +58,8 @@ export function isAnnotation(value: unknown): value is Annotation {
 	if (typeof value.instruction !== "string") return false;
 	if (typeof value.selectedText !== "string") return false;
 	if (value.headingPath !== undefined && !isStringArray(value.headingPath)) return false;
+	if (value.from !== undefined && typeof value.from !== "number") return false;
+	if (value.to !== undefined && typeof value.to !== "number") return false;
 	if (value.prefix !== undefined && typeof value.prefix !== "string") return false;
 	if (value.suffix !== undefined && typeof value.suffix !== "string") return false;
 	return true;
@@ -62,16 +73,39 @@ function sanitizeFile(file: AnnotationFile): AnnotationFile {
 }
 
 function sanitizeAnnotation(item: Annotation): Annotation {
+	const range = readRange(item);
 	const next: Annotation = {
 		id: item.id,
 		file: item.file.replace(/\\/g, "/"),
 		instruction: item.instruction,
 		selectedText: item.selectedText,
+		from: range.from,
+		to: range.to,
 	};
 	if (item.headingPath?.length) next.headingPath = [...item.headingPath];
-	if (item.prefix) next.prefix = item.prefix;
-	if (item.suffix) next.suffix = item.suffix;
+	if (range.from < 0) {
+		if (item.prefix) next.prefix = item.prefix;
+		if (item.suffix) next.suffix = item.suffix;
+	}
 	return next;
+}
+
+function annotationJson(item: Annotation): Record<string, unknown> {
+	const out: Record<string, unknown> = {
+		id: item.id,
+		file: item.file,
+		instruction: item.instruction,
+		selectedText: item.selectedText,
+	};
+	if (item.headingPath?.length) out.headingPath = item.headingPath;
+	if (item.from >= 0 && item.to >= item.from) {
+		out.from = item.from;
+		out.to = item.to;
+	} else {
+		if (item.prefix) out.prefix = item.prefix;
+		if (item.suffix) out.suffix = item.suffix;
+	}
+	return out;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

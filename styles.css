@@ -374,13 +374,14 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	white-space: normal;
 }
 
 .aa-queue-item:hover .aa-queue-was,
 .aa-queue-item:focus-within .aa-queue-was {
-	display: block;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
 }
 
 .aa-queue-applied-icon {

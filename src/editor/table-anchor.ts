@@ -13,6 +13,11 @@ import { Text } from "@codemirror/state";
  * replace. When the table is the last line of the document the replace
  * is non-inclusive (end side ≈ -6e8); no widget side falls inside that,
  * so the anchor moves one character earlier instead.
+ *
+ * A display-math block is also one replace, from the opening `$$` through
+ * the closing `$$`. A card inside that range is not drawn, and the draft
+ * stays set, so the selection button will not come back. The card sits
+ * on the closing line instead, after the math widget.
  */
 export interface CardWidgetAnchor {
 	pos: number;
@@ -27,8 +32,16 @@ const SEP_CELL = /^\s*:?\s*-+\s*:?\s*$/;
 
 type TableKind = "normal" | "simple";
 
+const MATH_FENCE = /^\s*\$\$\s*$/;
+const MATH_LINE = /^\s*\$\$.+\$\$\s*$/;
+const CODE_FENCE = /^\s*(```+|~~~+)/;
+
 export function cardWidgetAnchor(doc: Text, lineEnd: number): CardWidgetAnchor {
 	const line = doc.lineAt(lineEnd);
+	const mathClose = displayMathCloseLine(doc, line.number);
+	if (mathClose !== null) {
+		return { pos: doc.line(mathClose).to, inlineOrder: false };
+	}
 	if (tableEndLine(doc, line.number) !== line.number) {
 		return { pos: line.to, inlineOrder: false };
 	}
@@ -36,6 +49,29 @@ export function cardWidgetAnchor(doc: Text, lineEnd: number): CardWidgetAnchor {
 		return { pos: line.to - 1, inlineOrder: false };
 	}
 	return { pos: line.to, inlineOrder: true };
+}
+
+function displayMathCloseLine(doc: Text, lineNumber: number): number | null {
+	const own = doc.line(lineNumber).text;
+	if (MATH_LINE.test(own)) return lineNumber;
+
+	let inCode = false;
+	let open = 0;
+	for (let i = 1; i <= doc.lines; i++) {
+		const text = doc.line(i).text;
+		if (CODE_FENCE.test(text)) {
+			inCode = !inCode;
+			continue;
+		}
+		if (inCode || !MATH_FENCE.test(text)) continue;
+		if (!open) {
+			open = i;
+			continue;
+		}
+		if (lineNumber >= open && lineNumber <= i) return i;
+		open = 0;
+	}
+	return null;
 }
 
 function tableEndLine(doc: Text, lineNumber: number): number | null {

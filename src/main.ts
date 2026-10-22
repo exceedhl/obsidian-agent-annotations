@@ -24,7 +24,8 @@ import { selectionToolbarPlugin } from "./editor/toolbar";
 import { headingPathFromSource } from "./headings";
 import type { AnnotationHost } from "./host";
 import { annotationHostFacet } from "./host";
-import { annotationAtRange, extractContext, locateApplied, locateSelection, visibleAppliedRange } from "./locate";
+import { annotationAtRange, annotationRange, appliedRange, extractContext, visibleAppliedRange } from "./locate";
+import { mapDocumentRange } from "./offsets";
 import { DEFAULT_SETTINGS, mergeSettings, type PluginSettings } from "./settings";
 import { AnnotationStore } from "./store";
 import type { Annotation, AppliedChange, DraftAnnotation } from "./types";
@@ -153,6 +154,8 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 
 	onunload(): void {
 		void this.applied?.flushBaselines();
+		void this.applied?.flushPositions();
+		void this.store?.flushShift();
 		this.store.stopWatching();
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			if (leaf.view instanceof MarkdownView) clearFileBadge(leaf.view);
@@ -196,8 +199,19 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 		return this.applied.forFile(path);
 	}
 
-	noteUserBaseline(path: string, text: string): void {
-		this.applied.noteUserEdit(path, text);
+	trackDocumentEdit(
+		path: string,
+		changes: Parameters<typeof mapDocumentRange>[0],
+		before: string,
+		after: string,
+		user: boolean,
+	): void {
+		if (user) this.applied.noteUserEdit(path, after);
+		const mapRange = (from: number, to: number) => mapDocumentRange(changes, before, after, from, to);
+		this.store.shiftFile(path, after, mapRange);
+		this.store.placeFile(path, after);
+		this.applied.shiftFile(path, mapRange);
+		this.applied.placeFile(path, after);
 	}
 
 	startInstructionFromEditor(
@@ -297,7 +311,8 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 				instruction: text,
 				selectedText: doc.slice(draft.from, draft.to),
 				headingPath: headingPathFromSource(doc, draft.from),
-				...extractContext(doc, draft.from, draft.to),
+				from: draft.from,
+				to: draft.to,
 			});
 		} catch (error) {
 			new Notice(error instanceof Error ? error.message : "Could not save annotation");
@@ -376,7 +391,8 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 			return;
 		}
 
-		const loc = locateSelection(cm.state.doc.toString(), annotation);
+		const doc = cm.state.doc.toString();
+		const loc = annotationRange(doc, annotation);
 		if (!loc) {
 			new Notice("Could not locate the selected text in this file.");
 			return;
@@ -412,7 +428,7 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 		}
 
 		const doc = cm.state.doc.toString();
-		const located = locateApplied(doc, change);
+		const located = appliedRange(doc, change);
 		if (!located) {
 			new Notice("Could not locate this change in the file.");
 			return;
@@ -486,7 +502,10 @@ export default class AgentAnnotationsPlugin extends Plugin implements Annotation
 			const path = leaf.view.file?.path;
 			const cm = getEditorView(leaf.view);
 			if (!path || !cm) continue;
-			this.applied.fillIfMissing(path, cm.state.doc.toString());
+			const doc = cm.state.doc.toString();
+			this.applied.fillIfMissing(path, doc);
+			this.store.placeFile(path, doc);
+			this.applied.placeFile(path, doc);
 		}
 	}
 

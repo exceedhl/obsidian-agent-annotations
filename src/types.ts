@@ -4,6 +4,10 @@ export interface Annotation {
 	instruction: string;
 	selectedText: string;
 	headingPath?: string[];
+	/** Character offsets in `file`. `-1` means the range is not known yet. */
+	from: number;
+	to: number;
+	/** Legacy context. Kept only until `from`/`to` are filled, then dropped. */
 	prefix?: string;
 	suffix?: string;
 }
@@ -35,6 +39,9 @@ export interface AppliedChange {
 	headingPath?: string[];
 	prefix?: string;
 	suffix?: string;
+	/** Offsets of `after` in the note. A deletion is a caret (`from === to`). `-1` if unknown. */
+	from: number;
+	to: number;
 }
 
 export interface AppliedFile {

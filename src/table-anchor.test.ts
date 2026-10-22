@@ -67,6 +67,30 @@ describe("cardWidgetAnchor", () => {
 		assert.deepEqual(anchorAt(lines, 1), { pos: doc.line(1).to, inlineOrder: false });
 	});
 
+	it("places a card after a display math block", () => {
+		const lines = ["前文", "$$", "\\int f\\,d\\mu", "$$", "后文"];
+		const doc = docOf(lines);
+		const inside = anchorAt(lines, 3);
+		const close = anchorAt(lines, 4);
+		assert.deepEqual(inside, { pos: doc.line(4).to, inlineOrder: false });
+		assert.deepEqual(close, inside);
+		assert.deepEqual(anchorAt(lines, 5), { pos: doc.line(5).to, inlineOrder: false });
+	});
+
+	it("keeps a single-line formula on its own line", () => {
+		const lines = ["见 $$E=mc^2$$ 式", "$$E=mc^2$$"];
+		const doc = docOf(lines);
+		assert.deepEqual(anchorAt(lines, 1), { pos: doc.line(1).to, inlineOrder: false });
+		assert.deepEqual(anchorAt(lines, 2), { pos: doc.line(2).to, inlineOrder: false });
+	});
+
+	it("does not treat $$ inside a code fence as display math", () => {
+		const lines = ["```", "$$", "x", "$$", "```", "正文"];
+		const doc = docOf(lines);
+		assert.deepEqual(anchorAt(lines, 3), { pos: doc.line(3).to, inlineOrder: false });
+		assert.deepEqual(anchorAt(lines, 6), { pos: doc.line(6).to, inlineOrder: false });
+	});
+
 	it("stops at the first table when another table follows", () => {
 		const lines = [
 			"| a | b |",
