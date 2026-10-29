@@ -57,7 +57,7 @@ export class QueueView extends ItemView {
 		});
 		menu.addItem((item) => {
 			item
-				.setTitle("Clear applied")
+				.setTitle("Confirm applied")
 				.setIcon("check-check")
 				.setDisabled(this.plugin.applied.changes.length === 0)
 				.onClick(() => void this.clearApplied());
@@ -177,9 +177,9 @@ export class QueueView extends ItemView {
 
 		const clear = head.createEl("button", { cls: "aa-queue-clear" });
 		clear.type = "button";
-		clear.setAttribute("aria-label", "Clear applied changes");
+		clear.setAttribute("aria-label", "Confirm applied changes");
 		setIcon(clear.createSpan({ cls: "aa-queue-clear-icon" }), "check-check");
-		clear.createSpan({ text: "Clear all" });
+		clear.createSpan({ text: "Confirm all" });
 		clear.addEventListener("click", () => void this.clearApplied());
 	}
 
@@ -364,11 +364,11 @@ export class QueueView extends ItemView {
 		try {
 			const removed = await this.plugin.applied.clear();
 			if (removed.length === 0) return;
-			showUndoNotice("Cleared applied changes", () => {
+			showUndoNotice("Confirmed applied changes", () => {
 				void this.plugin.applied.restore(removed);
 			});
 		} catch (error) {
-			new Notice(error instanceof Error ? error.message : "Could not clear applied changes");
+			new Notice(error instanceof Error ? error.message : "Could not confirm applied changes");
 		}
 	}
 
